@@ -70,9 +70,12 @@ async function getDataFromCSV() {
 
                 // Assuming your CSV has a column named "UPC"
                 if (normalizedRow.UPC) UPClist.push(normalizedRow.UPC);
-                const Price = PriceOptions.find(option => normalizedRow[option]);
-                if (Price) CostList.push(normalizedRow[Price]);
-                const itemNo = itemNoOptions.find(option => normalizedRow[option]);
+                // Find the price or use -1 if not found
+                const Price = PriceOptions.find(option => normalizedRow.hasOwnProperty(option)) ? normalizedRow[PriceOptions.find(option => normalizedRow.hasOwnProperty(option))] : -1;
+                CostList.push(Price);
+
+                // Find the item number
+                const itemNo = itemNoOptions.find(option => normalizedRow.hasOwnProperty(option));
                 if (itemNo) ItemNoList.push(normalizedRow[itemNo]);
             })
             .on('end', () => {
@@ -461,6 +464,7 @@ async function getFeesEstimateForASINList(accessToken) {
                             ASIN: offer.ASIN,
                             FeesEstimate: response.data.payload.FeesEstimateResult.FeesEstimate.TotalFeesEstimate.Amount,
                         });
+                        console.log(`Retrieved Fee Estimate for ASIN: ${offer.ASIN} - ${response.data.payload.FeesEstimateResult.FeesEstimate.TotalFeesEstimate.Amount}`);
                     } else {
                         console.log(`Fees not found for ASIN ${offer.ASIN}. Inputting 0.`);
                         feesEstimates.push({
