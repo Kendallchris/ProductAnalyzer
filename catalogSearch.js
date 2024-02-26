@@ -1,4 +1,6 @@
-// Using scaleleap SDK: https://www.npmjs.com/package/@scaleleap/selling-partner-api-sdk?activeTab=readme
+// Using scaleleap SDK ('npm i -s @scaleleap/selling-partner-api-sdk'): https://www.npmjs.com/package/@scaleleap/selling-partner-api-sdk?activeTab=readme
+// Using axios ('npm install axios')
+// Using qs ('npm install qs')
 // Using CSV Parser ('npm install csv-parser')
 // Using CSV Writer ('npm install csv-writer')
 // Using dotenv ('npm install dotenv')
@@ -21,6 +23,7 @@ let CostList = [];
 let feesEstimates = [];
 let RankList = [];
 let profits = [];
+let ItemNoList = [];
 const refreshToken = process.env.AMAZON_REFRESH_TOKEN;
 const clientId = process.env.AMAZON_CLIENT_ID;
 const clientSecret = process.env.AMAZON_CLIENT_SECRET;
@@ -52,30 +55,36 @@ async function getUPCListFromCSV() {
         fs.createReadStream(filePath)
             .pipe(csv())
             .on('data', (row) => {
-                // Assuming your CSV has a column named "UPC" and "FIRST_PricePerPiece"
-                // Adjust this as per the actual structure of CSV file
+                // potential options for column header
+                const itemNoOptions = ['Item No.', 'Item Number', 'SKU'];
+                const PriceOptions = ['FIRST_PricePerPiece', 'Price'];
+
+                // Assuming your CSV has a column named "UPC"
                 if (row.UPC) UPClist.push(row.UPC);
-                if (row.FIRST_PricePerPiece) CostList.push(row.FIRST_PricePerPiece);
+                const Price = PriceOptions.find(option => row[option]);
+                if (Price) CostList.push(row[Price]);
+                // if (row.FIRST_PricePerPiece) CostList.push(row.FIRST_PricePerPiece);
+                // Check each option for the "Item No." column
+                const itemNo = itemNoOptions.find(option => row[option]);
+                if (itemNo) ItemNoList.push(row[itemNo]);
             })
             .on('end', () => {
                 console.log('CSV file successfully processed:');
-                console.log(UPClist);
-                console.log(CostList);
-                resolve(UPClist);
-                resolve(CostList);
+                console.log('UPC List:', UPClist);
+                console.log('Cost List:', CostList);
+                console.log('Item No List:', ItemNoList);
+                resolve();
             })
             .on('error', reject);
     });
 }
 
 function calculateProfits() {
-    //let profits = []; // Array to hold profit calculations
-
     // Ensure that CostList contains numeric values
     const numericCostList = CostList.map(cost => parseFloat(cost.replace(/[^\d.-]/g, '')) || 0);
 
     for (let i = 0; i < ASINlist.length; i++) {
-        const asin = ASINlist[i];
+        const asin = ASINlist[i] || 'Unknown';
         const offer = AMZoffer.find(offer => offer.ASIN === asin);
         const feesEstimate = feesEstimates.find(fee => fee.ASIN === asin);
         const cost = numericCostList[i]; // Use the numeric cost from the updated list
@@ -84,6 +93,7 @@ function calculateProfits() {
         let profit = offer && feesEstimate ? offer.OfferPrice - (feesEstimate.FeesEstimate + cost) : 0;
 
         profits.push({
+            ItemNo: ItemNoList[i],
             UPC: UPClist[i] || 'Unknown', // Use Unknown if UPC is missing
             ASIN: asin,
             SalesRank: RankList[i] || -1, // Use -1 if SalesRank is missing
@@ -107,6 +117,7 @@ function filterAndWriteToCSV() {
     const csvWriter = createCsvWriter({
         path: 'Research.csv',
         header: [
+            { id: 'Item No.', title: 'Item No.' },
             { id: 'UPC', title: 'UPC' },
             { id: 'ASIN', title: 'ASIN' },
             { id: 'SalesRank', title: 'SalesRank' },
@@ -185,6 +196,7 @@ async function getTokenAndMakeApiCall() {
     This function traverses through the array of UPC's and gets their sales rank and ASIN. If they are not found this is handled by
     putting a '-1' into the slot the data would have gone. 
 */
+// CAN PASS AN ARRAY OF UPCS TO THE API CALL TO SPEED THINGS UP!!!! But need to figure out how to handle unfound UPCs in that case. 
 async function searchCatalogItemsByUPC(accessToken) {
     const client = new CatalogItemsApiClientV20220401({
         accessToken: accessToken,
