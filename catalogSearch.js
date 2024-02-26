@@ -53,30 +53,58 @@ function normalizeHeader(header) {
     return header.replace(/^\uFEFF/, '').trim(); // Remove BOM and trim whitespace
 }
 
+async function findFirstMatchingHeader(filePath, optionsList) {
+    const fileStream = fs.createReadStream(filePath);
+    const rl = readline.createInterface({
+        input: fileStream,
+        crlfDelay: Infinity
+    });
+
+    for await (const line of rl) {
+        const headers = line.split(',').map(normalizeHeader); // Assuming comma-separated values; adjust according to your file's actual delimiter
+        for (const option of optionsList) {
+            const index = headers.findIndex(header => header === normalizeHeader(option));
+            console.log(index);
+            if (index !== -1) {
+                rl.close();
+                fileStream.close();
+                return index; // Return the index of the first matching header
+            }
+        }
+        break; // Only process the first line
+    }
+}
+
 async function getDataFromCSV() {
     const filePath = await promptForCSVFilePath();
+    const UPCOptions = ['UPC', 'Upc'];
+    const itemNoOptions = ['Item No.', 'Item Number', 'SKU'];
+    const priceOptions = ['FIRST_PricePerPiece', 'Price', 'Price Per Piece'];
+
+    const firstUPCHeaderIndex = await findFirstMatchingHeader(filePath, UPCOptions);
+    const firstItemNoHeaderIndex = await findFirstMatchingHeader(filePath, itemNoOptions);
+    const firstPriceHeaderIndex = await findFirstMatchingHeader(filePath, priceOptions);
 
     return new Promise((resolve, reject) => {
         fs.createReadStream(filePath)
-            .pipe(csv())
+            .pipe(csv({
+                mapHeaders: ({ index }) => {
+                    if (index === firstUPCHeaderIndex) return 'UPC';
+                    if (index === firstItemNoHeaderIndex) return 'ItemNo';
+                    if (index === firstPriceHeaderIndex) return 'Price';
+                    return null; // Ignore other columns
+                }
+            }))
             .on('data', (row) => {
-                // Normalize each key in row object
-                const normalizedRow = Object.fromEntries(
-                    Object.entries(row).map(([key, value]) => [normalizeHeader(key), value])
-                );
-                // potential options for column header
-                const itemNoOptions = ['Item No.', 'Item Number', 'SKU'].map(normalizeHeader);
-                const PriceOptions = ['FIRST_PricePerPiece', 'Price'].map(normalizeHeader);
-
-                // Assuming your CSV has a column named "UPC"
-                if (normalizedRow.UPC) UPClist.push(normalizedRow.UPC);
-                // Find the price or use -1 if not found
-                const Price = PriceOptions.find(option => normalizedRow.hasOwnProperty(option)) ? normalizedRow[PriceOptions.find(option => normalizedRow.hasOwnProperty(option))] : -1;
-                CostList.push(Price);
-
-                // Find the item number
-                const itemNo = itemNoOptions.find(option => normalizedRow.hasOwnProperty(option));
-                if (itemNo) ItemNoList.push(normalizedRow[itemNo]);
+                if ('UPC' in row) {
+                    UPClist.push(row['UPC']);
+                }
+                if ('Price' in row) {
+                    CostList.push(row['Price']);
+                }
+                if ('ItemNo' in row) {
+                    ItemNoList.push(row['ItemNo']);
+                }
             })
             .on('end', () => {
                 console.log('CSV file successfully processed:');
@@ -139,7 +167,6 @@ function filterAndWriteToCSV() {
     });
 
     // Write the filtered data to the CSV file
-    csvWriter.writeRecords(filteredProfits)
     csvWriter.writeRecords(filteredProfits)
         .then(() => {
             console.log('The CSV file was written successfully');
@@ -209,7 +236,7 @@ async function getTokenAndMakeApiCall() {
 }
 
 // Function to refresh the token
-async function getRefreshToken() {
+async function getTokenRefresh() {
     let retryCount = 0;
     const maxRetries = 3; // Maximum number of retries
     const retryDelay = 10000; // Delay between retries in milliseconds
@@ -280,20 +307,15 @@ async function searchCatalogItemsByUPC(accessToken) {
                     }
 
                     // Check if there are sales ranks and display group ranks
-                    // future - add sales rank to array of sales ranks
                     if (salesRanks.length > 0 && salesRanks[0].displayGroupRanks.length > 0) {
                         const displayGroupRank = salesRanks[0].displayGroupRanks[0]; // Accessing the first display group rank
-                        //console.log(`Display Group Title: ${displayGroupRank.title}`);
                         console.log(`Rank: ${displayGroupRank.rank}`);
                         RankList.push(displayGroupRank.rank);
-                        //console.log(`Link: ${displayGroupRank.link}`);
                     } else {
-                        // future - add '-1' to array of sales ranks
                         console.log('No display group ranks available.');
                         RankList.push(0);
                     }
                 } else {
-                    // future - add '-1' to array each array being built
                     console.log(`No results found for the UPC.`);
                     ASINlist.push('0');
                     RankList.push(0);
@@ -318,7 +340,6 @@ async function searchCatalogItemsByUPC(accessToken) {
         await new Promise(resolve => setTimeout(resolve, 500));
     }
     console.log(RankList);
-    //await getItemOffersForASIN(accessToken, ASINlist);
 }
 
 // https://selling-partner-api-sdk.scaleleap.org/classes/productpricingapiclient#getCompetitivePricing
@@ -416,8 +437,6 @@ async function getItemOffersForASIN(accessToken) {
     for (const offer of AMZoffer) {
         console.log(offer);
     }
-    // End Debugging
-    //await getFeesEstimateForASINList(accessToken, AMZoffer);
 }
 
 // https://selling-partner-api-sdk.scaleleap.org/classes/productfeesapiclient#getMyFeesEstimateForASIN
@@ -511,7 +530,7 @@ async function startProcess() {
         await filterAndWriteToCSV();
 
         // Now set up the token refresh every ~hour after initial token retrieval
-        setInterval(getRefreshToken, 3500000);
+        setInterval(getTokenRefresh, 3500000);
     } catch (error) {
         console.error("Error during the process:", error);
         // Handle any errors that occurred during initialization
@@ -522,11 +541,3 @@ startProcess().catch(error => {
     console.error("An error occurred during the process:", error);
     process.exit(1); // Exit the process with a failure code
 });
-// getUPCListFromCSV().then(() => {
-//     getTokenAndMakeApiCall().then(() => {
-//         calculateProfits();
-//         filterAndWriteToCSV();
-//     }).catch((error) => {
-//         console.error("Error after getTokenAndMakeApiCall:", error); // Handle any errors that occurred in the promise chain.
-//     });
-// }).catch(console.error);
