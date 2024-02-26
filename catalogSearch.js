@@ -16,6 +16,7 @@ const { STSClient, AssumeRoleCommand } = require('@aws-sdk/client-sts');
 const { SellersApiClient, CatalogItemsApiClientV20220401, ProductPricingApiClient, ProductFeesApiClient } = require('@scaleleap/selling-partner-api-sdk');
 
 // Global Variables
+let accessToken = ''; // Global variable to store the access token
 let ASINlist = [];
 let AMZoffer = [];
 let UPClist = [];
@@ -130,9 +131,16 @@ function filterAndWriteToCSV() {
 
     // Write the filtered data to the CSV file
     csvWriter.writeRecords(filteredProfits)
-        .then(() => console.log('The CSV file was written successfully'));
+    csvWriter.writeRecords(filteredProfits)
+        .then(() => {
+            console.log('The CSV file was written successfully');
+            process.exit(0); // Exit the process after writing the file successfully
+        })
+        .catch((error) => {
+            console.error('Error writing CSV file:', error);
+            process.exit(1); // Exit with an error code if writing the file fails
+        });
 }
-
 
 async function getTokenAndMakeApiCall() {
     // Step 1: Obtain the Access Token
@@ -150,7 +158,7 @@ async function getTokenAndMakeApiCall() {
             })
         });
 
-        const accessToken = tokenResponse.data.access_token;
+        accessToken = tokenResponse.data.access_token;
         console.log("Access Token:", accessToken);
 
         // Step 2: Assume an AWS Role using STS
@@ -188,6 +196,39 @@ async function getTokenAndMakeApiCall() {
         // Additional API calls can be made here using the `client`
     } catch (error) {
         console.error("Error:", error.response ? error.response.data : error.message);
+    }
+}
+
+// Function to refresh the token
+async function getRefreshToken() {
+    let retryCount = 0;
+    const maxRetries = 3; // Maximum number of retries
+    const retryDelay = 10000; // Delay between retries in milliseconds
+    while (retryCount < maxRetries) {
+        try {
+            const tokenResponse = await axios({
+                method: 'post',
+                url: 'https://api.amazon.com/auth/o2/token',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+                data: qs.stringify({
+                    grant_type: 'refresh_token',
+                    refresh_token: refreshToken,
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                }),
+            });
+
+            accessToken = tokenResponse.data.access_token;
+            console.log("Access Token refreshed:", accessToken);
+            return; // Token refreshed successfully, exit the function
+        } catch (error) {
+            cconsole.error("Error refreshing token:", error.response ? error.response.data : error.message);
+            retryCount++;
+            if (retryCount >= maxRetries) {
+                throw new Error("Failed to refresh access token after maximum retry attempts.");
+            }
+            await delay(retryDelay);
+        }
     }
 }
 
@@ -451,11 +492,34 @@ async function getFeesEstimateForASINList(accessToken) {
     console.log(feesEstimates); // Log the fees estimates for debugging
 }
 
-getUPCListFromCSV().then(() => {
-    getTokenAndMakeApiCall().then(() => {
-        calculateProfits();
-        filterAndWriteToCSV();
-    }).catch((error) => {
-        console.error("Error after getTokenAndMakeApiCall:", error); // Handle any errors that occurred in the promise chain.
-    });
-}).catch(console.error);
+// Function to start the process
+async function startProcess() {
+    //await getRefreshToken(); // Initial token fetch
+    setInterval(getRefreshToken, 3600000); // Set up the token to refresh every hour
+
+    getUPCListFromCSV().then(() => {
+        getTokenAndMakeApiCall().then(() => {
+            calculateProfits();
+            filterAndWriteToCSV();
+        }).catch((error) => {
+            console.error("Error after getTokenAndMakeApiCall:", error); // Handle any errors that occurred in the promise chain.
+        });
+    }).catch(console.error);
+    // Then call your API functions here
+    // ...
+
+    //await getTokenAndMakeApiCall();
+}
+
+startProcess().catch(error => {
+    console.error("An error occurred during the process:", error);
+    process.exit(1); // Exit the process with a failure code
+});
+// getUPCListFromCSV().then(() => {
+//     getTokenAndMakeApiCall().then(() => {
+//         calculateProfits();
+//         filterAndWriteToCSV();
+//     }).catch((error) => {
+//         console.error("Error after getTokenAndMakeApiCall:", error); // Handle any errors that occurred in the promise chain.
+//     });
+// }).catch(console.error);
