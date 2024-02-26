@@ -49,25 +49,31 @@ function promptForCSVFilePath() {
     });
 }
 
-async function getUPCListFromCSV() {
+function normalizeHeader(header) {
+    return header.replace(/^\uFEFF/, '').trim(); // Remove BOM and trim whitespace
+}
+
+async function getDataFromCSV() {
     const filePath = await promptForCSVFilePath();
 
     return new Promise((resolve, reject) => {
         fs.createReadStream(filePath)
             .pipe(csv())
             .on('data', (row) => {
+                // Normalize each key in row object
+                const normalizedRow = Object.fromEntries(
+                    Object.entries(row).map(([key, value]) => [normalizeHeader(key), value])
+                );
                 // potential options for column header
-                const itemNoOptions = ['Item No.', 'Item Number', 'SKU'];
-                const PriceOptions = ['FIRST_PricePerPiece', 'Price'];
+                const itemNoOptions = ['Item No.', 'Item Number', 'SKU'].map(normalizeHeader);
+                const PriceOptions = ['FIRST_PricePerPiece', 'Price'].map(normalizeHeader);
 
                 // Assuming your CSV has a column named "UPC"
-                if (row.UPC) UPClist.push(row.UPC);
-                const Price = PriceOptions.find(option => row[option]);
-                if (Price) CostList.push(row[Price]);
-                // if (row.FIRST_PricePerPiece) CostList.push(row.FIRST_PricePerPiece);
-                // Check each option for the "Item No." column
-                const itemNo = itemNoOptions.find(option => row[option]);
-                if (itemNo) ItemNoList.push(row[itemNo]);
+                if (normalizedRow.UPC) UPClist.push(normalizedRow.UPC);
+                const Price = PriceOptions.find(option => normalizedRow[option]);
+                if (Price) CostList.push(normalizedRow[Price]);
+                const itemNo = itemNoOptions.find(option => normalizedRow[option]);
+                if (itemNo) ItemNoList.push(normalizedRow[itemNo]);
             })
             .on('end', () => {
                 console.log('CSV file successfully processed:');
@@ -494,21 +500,18 @@ async function getFeesEstimateForASINList(accessToken) {
 
 // Function to start the process
 async function startProcess() {
-    //await getRefreshToken(); // Initial token fetch
-    setInterval(getRefreshToken, 3600000); // Set up the token to refresh every hour
+    try {
+        await getDataFromCSV();
+        await getTokenAndMakeApiCall(); // This should get the initial token
+        calculateProfits();
+        await filterAndWriteToCSV();
 
-    getUPCListFromCSV().then(() => {
-        getTokenAndMakeApiCall().then(() => {
-            calculateProfits();
-            filterAndWriteToCSV();
-        }).catch((error) => {
-            console.error("Error after getTokenAndMakeApiCall:", error); // Handle any errors that occurred in the promise chain.
-        });
-    }).catch(console.error);
-    // Then call your API functions here
-    // ...
-
-    //await getTokenAndMakeApiCall();
+        // Now set up the token refresh every ~hour after initial token retrieval
+        setInterval(getRefreshToken, 3500000);
+    } catch (error) {
+        console.error("Error during the process:", error);
+        // Handle any errors that occurred during initialization
+    }
 }
 
 startProcess().catch(error => {
