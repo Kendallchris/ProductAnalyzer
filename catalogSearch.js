@@ -48,6 +48,90 @@ function promptForCSVFilePath() {
         });
     });
 }
+// COULD ADD THIS TO REPLACE *******************************************************
+// class CSVDataProcessor {
+//     constructor(filePath) {
+//         this.filePath = filePath;
+//         this.UPClist = [];
+//         this.CostList = [];
+//         this.ItemNoList = [];
+//     }
+
+//     normalizeHeader(header) {
+//         return header.replace(/^\uFEFF/, '').trim();
+//     }
+
+//     async findFirstMatchingHeader(optionsList) {
+//         const fileStream = fs.createReadStream(this.filePath);
+//         const rl = readline.createInterface({
+//             input: fileStream,
+//             crlfDelay: Infinity
+//         });
+
+//         for await (const line of rl) {
+//             const headers = line.split(',').map(header => this.normalizeHeader(header));
+//             for (const option of optionsList) {
+//                 const index = headers.findIndex(header => header === this.normalizeHeader(option));
+//                 if (index !== -1) {
+//                     rl.close();
+//                     await new Promise(resolve => fileStream.on('close', resolve));
+//                     return index;
+//                 }
+//             }
+//             break;
+//         }
+
+//         rl.close();
+//         await new Promise(resolve => fileStream.on('close', resolve));
+//         return -1;
+//     }
+
+//     async getDataFromCSV() {
+//         try {
+//             const UPCOptions = ['UPC', 'Upc'];
+//             const itemNoOptions = ['Item No.', 'Item Number', 'SKU'];
+//             const priceOptions = ['FIRST_PricePerPiece', 'Price', 'Price Per Piece'];
+
+//             const firstUPCHeaderIndex = await this.findFirstMatchingHeader(UPCOptions);
+//             const firstItemNoHeaderIndex = await this.findFirstMatchingHeader(itemNoOptions);
+//             const firstPriceHeaderIndex = await this.findFirstMatchingHeader(priceOptions);
+
+//             await new Promise((resolve, reject) => {
+//                 fs.createReadStream(this.filePath)
+//                     .pipe(csv({
+//                         mapHeaders: ({ index }) => {
+//                             if (index === firstUPCHeaderIndex) return 'UPC';
+//                             if (index === firstItemNoHeaderIndex) return 'ItemNo';
+//                             if (index === firstPriceHeaderIndex) return 'Price';
+//                             return null;
+//                         }
+//                     }))
+//                     .on('data', row => {
+//                         if ('UPC' in row) this.UPClist.push(row['UPC']);
+//                         if ('Price' in row) this.CostList.push(row['Price']);
+//                         if ('ItemNo' in row) this.ItemNoList.push(row['ItemNo']);
+//                     })
+//                     .on('end', () => {
+//                         console.log('CSV file successfully processed:');
+//                         console.log('UPC List:', this.UPClist);
+//                         console.log('Cost List:', this.CostList);
+//                         console.log('Item No List:', this.ItemNoList);
+//                         resolve();
+//                     })
+//                     .on('error', reject);
+//             });
+//         } catch (error) {
+//             console.error('Error processing CSV file:', error);
+//         }
+//     }
+// }
+
+// // Usage
+// async function processCSVFile(filePath) {
+//     const processor = new CSVDataProcessor(filePath);
+//     await processor.getDataFromCSV();
+//     // Processed data is now within the processor instance, e.g., processor.UPClist
+// }
 
 function normalizeHeader(header) {
     return header.replace(/^\uFEFF/, '').trim(); // Remove BOM and trim whitespace
@@ -115,6 +199,8 @@ async function getDataFromCSV() {
             .on('error', reject);
     });
 }
+
+// THIS *******************************************************************************************************
 
 function calculateProfits() {
     // Ensure that CostList contains numeric values
@@ -224,9 +310,9 @@ async function getTokenAndMakeApiCall() {
             }
         });
 
-        await searchCatalogItemsByUPC(accessToken);
-        await getItemOffersForASIN(accessToken);
-        await getFeesEstimateForASINList(accessToken);
+        await searchCatalogItemsByUPC();
+        await getItemOffersForASIN();
+        await getFeesEstimateForASINList();
 
         // Additional API calls can be made here using the `client`
     } catch (error) {
@@ -257,7 +343,7 @@ async function getTokenRefresh() {
             console.log("Access Token refreshed:", accessToken);
             return; // Token refreshed successfully, exit the function
         } catch (error) {
-            cconsole.error("Error refreshing token:", error.response ? error.response.data : error.message);
+            console.error("Error refreshing token:", error.response ? error.response.data : error.message);
             retryCount++;
             if (retryCount >= maxRetries) {
                 throw new Error("Failed to refresh access token after maximum retry attempts.");
@@ -273,7 +359,7 @@ async function getTokenRefresh() {
     putting a '-1' into the slot the data would have gone. 
 */
 // CAN PASS AN ARRAY OF UPCS TO THE API CALL TO SPEED THINGS UP!!!! But need to figure out how to handle unfound UPCs in that case. 
-async function searchCatalogItemsByUPC(accessToken) {
+async function searchCatalogItemsByUPC() {
     const client = new CatalogItemsApiClientV20220401({
         accessToken: accessToken,
         region: 'us-east-1', // Make sure to set the appropriate region
@@ -343,7 +429,7 @@ async function searchCatalogItemsByUPC(accessToken) {
 
 // https://selling-partner-api-sdk.scaleleap.org/classes/productpricingapiclient#getCompetitivePricing
 // This function fetches competitive pricing for ASINs and stores offer prices in AMZoffer array
-async function getItemOffersForASIN(accessToken) {
+async function getItemOffersForASIN() {
     const client = new ProductPricingApiClient({
         accessToken: accessToken,
         region: 'us-east-1', // Make sure to set the appropriate region
@@ -439,7 +525,7 @@ async function getItemOffersForASIN(accessToken) {
 }
 
 // https://selling-partner-api-sdk.scaleleap.org/classes/productfeesapiclient#getMyFeesEstimateForASIN
-async function getFeesEstimateForASINList(accessToken) {
+async function getFeesEstimateForASINList() {
     const client = new ProductFeesApiClient({
         accessToken: accessToken,
         region: 'us-east-1',
