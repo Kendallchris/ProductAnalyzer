@@ -48,90 +48,6 @@ function promptForCSVFilePath() {
         });
     });
 }
-// COULD ADD THIS TO REPLACE *******************************************************
-// class CSVDataProcessor {
-//     constructor(filePath) {
-//         this.filePath = filePath;
-//         this.UPClist = [];
-//         this.CostList = [];
-//         this.ItemNoList = [];
-//     }
-
-//     normalizeHeader(header) {
-//         return header.replace(/^\uFEFF/, '').trim();
-//     }
-
-//     async findFirstMatchingHeader(optionsList) {
-//         const fileStream = fs.createReadStream(this.filePath);
-//         const rl = readline.createInterface({
-//             input: fileStream,
-//             crlfDelay: Infinity
-//         });
-
-//         for await (const line of rl) {
-//             const headers = line.split(',').map(header => this.normalizeHeader(header));
-//             for (const option of optionsList) {
-//                 const index = headers.findIndex(header => header === this.normalizeHeader(option));
-//                 if (index !== -1) {
-//                     rl.close();
-//                     await new Promise(resolve => fileStream.on('close', resolve));
-//                     return index;
-//                 }
-//             }
-//             break;
-//         }
-
-//         rl.close();
-//         await new Promise(resolve => fileStream.on('close', resolve));
-//         return -1;
-//     }
-
-//     async getDataFromCSV() {
-//         try {
-//             const UPCOptions = ['UPC', 'Upc'];
-//             const itemNoOptions = ['Item No.', 'Item Number', 'SKU'];
-//             const priceOptions = ['FIRST_PricePerPiece', 'Price', 'Price Per Piece'];
-
-//             const firstUPCHeaderIndex = await this.findFirstMatchingHeader(UPCOptions);
-//             const firstItemNoHeaderIndex = await this.findFirstMatchingHeader(itemNoOptions);
-//             const firstPriceHeaderIndex = await this.findFirstMatchingHeader(priceOptions);
-
-//             await new Promise((resolve, reject) => {
-//                 fs.createReadStream(this.filePath)
-//                     .pipe(csv({
-//                         mapHeaders: ({ index }) => {
-//                             if (index === firstUPCHeaderIndex) return 'UPC';
-//                             if (index === firstItemNoHeaderIndex) return 'ItemNo';
-//                             if (index === firstPriceHeaderIndex) return 'Price';
-//                             return null;
-//                         }
-//                     }))
-//                     .on('data', row => {
-//                         if ('UPC' in row) this.UPClist.push(row['UPC']);
-//                         if ('Price' in row) this.CostList.push(row['Price']);
-//                         if ('ItemNo' in row) this.ItemNoList.push(row['ItemNo']);
-//                     })
-//                     .on('end', () => {
-//                         console.log('CSV file successfully processed:');
-//                         console.log('UPC List:', this.UPClist);
-//                         console.log('Cost List:', this.CostList);
-//                         console.log('Item No List:', this.ItemNoList);
-//                         resolve();
-//                     })
-//                     .on('error', reject);
-//             });
-//         } catch (error) {
-//             console.error('Error processing CSV file:', error);
-//         }
-//     }
-// }
-
-// // Usage
-// async function processCSVFile(filePath) {
-//     const processor = new CSVDataProcessor(filePath);
-//     await processor.getDataFromCSV();
-//     // Processed data is now within the processor instance, e.g., processor.UPClist
-// }
 
 function normalizeHeader(header) {
     return header.replace(/^\uFEFF/, '').trim(); // Remove BOM and trim whitespace
@@ -179,14 +95,23 @@ async function getDataFromCSV() {
                 }
             }))
             .on('data', (row) => {
-                if ('UPC' in row) {
-                    UPClist.push(row['UPC']);
+                if ('UPC' in row && row['UPC'].trim() !== '') {
+                    UPClist.push(row['UPC'].trim());
+                } else {
+                    console.log('No UPC found or UPC is empty - entering 0')
+                    UPClist.push(0);
                 }
                 if ('Price' in row) {
                     CostList.push(row['Price']);
+                } else {
+                    console.log('No Price found - entering 0')
+                    CostList.push(0);
                 }
                 if ('ItemNo' in row) {
                     ItemNoList.push(row['ItemNo']);
+                } else {
+                    console.log('No Item No. found - entering 0')
+                    ItemNoList.push('0');
                 }
             })
             .on('end', () => {
@@ -199,8 +124,6 @@ async function getDataFromCSV() {
             .on('error', reject);
     });
 }
-
-// THIS *******************************************************************************************************
 
 function calculateProfits() {
     // Ensure that CostList contains numeric values
@@ -366,6 +289,12 @@ async function searchCatalogItemsByUPC() {
     });
 
     for (const UPC of UPClist) {
+        // catch if there was not UPC found and set default values
+        if (UPC === 0) {
+            ASINlist.push('0');
+            RankList.push(0);
+            continue;
+        }
         let retryCount = 0;
         const maxRetries = 3; // Maximum number of retries
         const retryDelay = 3000; // Delay between retries in milliseconds
