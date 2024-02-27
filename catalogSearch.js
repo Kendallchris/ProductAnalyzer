@@ -334,7 +334,6 @@ async function searchCatalogItemsByUPC() {
                     ASINlist.push('0');
                     RankList.push(0);
                 }
-
                 break; // Break from retry loop on success
             } catch (error) {
                 if (error.name === 'SellingPartnerTooManyRequestsError') {
@@ -538,13 +537,12 @@ async function getFeesEstimateForASINList() {
 // Function to start the process
 async function startProcess() {
     try {
+        // Now set up the token refresh every ~hour after initial token retrieval
+        setInterval(getTokenRefresh, 3500000);
         await getDataFromCSV();
         await getTokenAndMakeApiCall(); // This should get the initial token
         calculateProfits();
-        await filterAndWriteToCSV();
-
-        // Now set up the token refresh every ~hour after initial token retrieval
-        setInterval(getTokenRefresh, 3500000);
+        filterAndWriteToCSV();
     } catch (error) {
         console.error("Error during the process:", error);
         // Handle any errors that occurred during initialization
