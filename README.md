@@ -1,2 +1,2 @@
 # ProductAnalyzer
- Upload CSV and UPCs and costs to find profitable items on Amazon
+Find profitable items from massive CSV files from distributors. Keep track of your backorders, knowing what is no longer profitable as well as an estimate of your monthly spend.

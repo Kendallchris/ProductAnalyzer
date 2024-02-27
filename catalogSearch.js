@@ -64,7 +64,6 @@ async function findFirstMatchingHeader(filePath, optionsList) {
         const headers = line.split(',').map(normalizeHeader); // Assuming comma-separated values; adjust according to your file's actual delimiter
         for (const option of optionsList) {
             const index = headers.findIndex(header => header === normalizeHeader(option));
-            console.log(index);
             if (index !== -1) {
                 rl.close();
                 fileStream.close();
@@ -155,7 +154,7 @@ function filterAndWriteToCSV() {
     const csvWriter = createCsvWriter({
         path: 'Research.csv',
         header: [
-            { id: 'Item No.', title: 'Item No.' },
+            { id: 'ItemNo', title: 'Item No.' },
             { id: 'UPC', title: 'UPC' },
             { id: 'ASIN', title: 'ASIN' },
             { id: 'SalesRank', title: 'SalesRank' },

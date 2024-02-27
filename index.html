@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Analyzer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #808080; /* Grey background */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: start;
+            height: 100vh;
+            color: black; /* Black text */
+            font-family: Arial, sans-serif;
+        }
+        .header {
+            margin-top: 20px; /* Adjust as needed for exact positioning */
+            text-align: center;
+            font-size: 24px;
+        }
+        .buttons {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 50px; /* Space from the header or top */
+        }
+        button {
+            background-color: #f0f0f0; /* Light grey background */
+            border: none;
+            padding: 10px 20px;
+            margin: 10px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #dcdcdc; /* Slightly darker grey on hover */
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        Product Analyzer
+    </div>
+    <div class="buttons">
+        <button onclick="productResearch()">Product Research</button>
+        <button onclick="backorderLog()">Backorder Log</button>
+        <button onclick="estimateSpend()">Estimate Spend</button>
+    </div>
+
+    <script>
+        function productResearch() {
+            console.log("Product Research clicked");
+            // Implement your function here
+        }
+        function backorderLog() {
+            console.log("Backorder Log clicked");
+            // Implement your function here
+        }
+        function estimateSpend() {
+            console.log("Estimate Spend clicked");
+            // Implement your function here
+        }
+    </script>
+</body>
+</html>

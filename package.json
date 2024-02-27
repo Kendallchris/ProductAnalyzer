@@ -1,4 +1,11 @@
 {
+  "name": "product-analyzer",
+  "version": "1.0.0",
+  "description": "Find profitable items from massive CSV files from distributors. Keep track of your backorders, knowing what is no longer profitable as well as an estimate of your monthly spend.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
   "dependencies": {
     "@scaleleap/selling-partner-api-sdk": "^6.13.8",
     "axios": "^1.6.7",
@@ -6,5 +13,10 @@
     "csv-writer": "^1.6.0",
     "dotenv": "^16.4.5",
     "qs": "^6.11.2"
-  }
+  },
+  "devDependencies": {
+    "electron": "^29.0.1"
+  },
+  "author": "Chris Kendall",
+  "license": "ISC"
 }
