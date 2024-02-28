@@ -331,13 +331,12 @@ async function getTokenAndMakeApiCall() {
  * @returns {Promise<void>} A promise that resolves once all UPCs have been searched.
  */
 async function searchCatalogItemsByUPC() {
-    const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
-    const client = new CatalogItemsApiClientV20220401({
-        accessToken: accessToken,
-        region: 'us-east-1',
-    });
-
     for (const UPC of UPClist) {
+        const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
+        const client = new CatalogItemsApiClientV20220401({
+            accessToken: accessToken,
+            region: 'us-east-1',
+        });
         // catch if there was not UPC found and set default values
         if (UPC === 0) {
             ASINlist.push('0');
@@ -410,13 +409,12 @@ async function searchCatalogItemsByUPC() {
  * @returns {Promise<void>} A promise that resolves once all ASINs have been processed.
  */
 async function getItemOffersForASIN() {
-    const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
-    const client = new ProductPricingApiClient({
-        accessToken: accessToken,
-        region: 'us-east-1',
-    });
-
     for (const ASIN of ASINlist) {
+        const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
+        const client = new ProductPricingApiClient({
+            accessToken: accessToken,
+            region: 'us-east-1',
+        });
         let retryCount = 0;
         let response;
         const maxRetries = 3; // Maximum number of retries
@@ -511,13 +509,12 @@ async function getItemOffersForASIN() {
  * @returns {Promise<void>} A promise that resolves once fees estimates for all ASINs have been retrieved.
  */
 async function getFeesEstimateForASINList() {
-    const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
-    const client = new ProductFeesApiClient({
-        accessToken: accessToken,
-        region: 'us-east-1',
-    });
-
     for (const offer of AMZoffer) {
+        const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
+        const client = new ProductFeesApiClient({
+            accessToken: accessToken,
+            region: 'us-east-1',
+        });
         if (offer.ASIN === '0') {
             feesEstimates.push({ ASIN: offer.ASIN, FeesEstimate: 0 });
             continue;
