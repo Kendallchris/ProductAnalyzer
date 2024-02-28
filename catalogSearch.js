@@ -16,7 +16,7 @@ const { STSClient, AssumeRoleCommand } = require('@aws-sdk/client-sts');
 const { SellersApiClient, CatalogItemsApiClientV20220401, ProductPricingApiClient, ProductFeesApiClient } = require('@scaleleap/selling-partner-api-sdk');
 
 // Global Variables
-let accessToken = ''; // Global variable to store the access token
+let currentAccessToken = '';
 let ASINlist = [];
 let AMZoffer = [];
 let UPClist = [];
@@ -30,16 +30,69 @@ const clientId = process.env.AMAZON_CLIENT_ID;
 const clientSecret = process.env.AMAZON_CLIENT_SECRET;
 const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
 const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
 
+/**
+ * Asynchronously retrieves the current access token to ensure the latest token is used for API calls.
+ * @returns {Promise<String>} A promise that resolves to the current access token.
+ */
+async function getCurrentAccessToken() {
+    // Logic here to ensure the returned token is the latest. This could be as simple as returning the currentAccessToken variable if it's always kept up-to-date.
+    return currentAccessToken;
+}
+
+/**
+ * Attempts to refresh the authentication token up to a maximum number of retries on failure. Logs the new token or error as appropriate.
+ * @returns {Promise<void>} A promise that resolves when the token has been refreshed or rejects after failing retries.
+ */
+async function getTokenRefresh() {
+    let retryCount = 0;
+    const maxRetries = 3; // Maximum number of retries
+    const retryDelay = 10000; // Delay between retries in milliseconds
+    while (retryCount < maxRetries) {
+        try {
+            const tokenResponse = await axios({
+                method: 'post',
+                url: 'https://api.amazon.com/auth/o2/token',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+                data: qs.stringify({
+                    grant_type: 'refresh_token',
+                    refresh_token: refreshToken,
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                }),
+            });
+
+            currentAccessToken = tokenResponse.data.access_token;
+            console.log("Access Token refreshed:", currentAccessToken);
+            return; // Token refreshed successfully, exit the function
+        } catch (error) {
+            console.error("Error refreshing token:", error.response ? error.response.data : error.message);
+            retryCount++;
+            if (retryCount >= maxRetries) {
+                throw new Error("Failed to refresh access token after maximum retry attempts.");
+            }
+            await delay(retryDelay);
+        }
+    }
+}
+
+/**
+ * Creates a promise that resolves after a specified delay, effectively pausing execution for that duration.
+ * @param {number} ms - The delay in milliseconds.
+ * @returns {Promise<void>} A promise that resolves after the specified delay.
+ */
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Prompts the user for the path to their CSV file and returns it.
+ * @returns {Promise<string>} A promise that resolves to the file path provided by the user.
+ */
 function promptForCSVFilePath() {
     return new Promise((resolve) => {
         rl.question('Enter the path to your CSV file: ', (filePath) => {
@@ -49,10 +102,21 @@ function promptForCSVFilePath() {
     });
 }
 
+/**
+ * Normalizes CSV header names by removing Byte Order Marks (BOM) and trimming whitespace.
+ * @param {string} header - The header name to normalize.
+ * @returns {string} The normalized header name.
+ */
 function normalizeHeader(header) {
     return header.replace(/^\uFEFF/, '').trim(); // Remove BOM and trim whitespace
 }
 
+/**
+ * Searches the first line of a CSV file to find the first header that matches any of the given options.
+ * @param {string} filePath - The path to the CSV file.
+ * @param {Array<string>} optionsList - A list of header name options to search for.
+ * @returns {Promise<number>} A promise that resolves to the index of the first matching header, or -1 if none match.
+ */
 async function findFirstMatchingHeader(filePath, optionsList) {
     const fileStream = fs.createReadStream(filePath);
     const rl = readline.createInterface({
@@ -74,6 +138,10 @@ async function findFirstMatchingHeader(filePath, optionsList) {
     }
 }
 
+/**
+ * Extracts data from a CSV file based on predefined headers for UPC, Item Number, and Price, handling missing values appropriately.
+ * @returns {Promise<void>} A promise that resolves once the CSV file has been processed.
+ */
 async function getDataFromCSV() {
     const filePath = await promptForCSVFilePath();
     const UPCOptions = ['UPC', 'Upc'];
@@ -95,20 +163,21 @@ async function getDataFromCSV() {
                 }
             }))
             .on('data', (row) => {
+                // look for data and handle empty string
                 if ('UPC' in row && row['UPC'].trim() !== '') {
                     UPClist.push(row['UPC'].trim());
                 } else {
                     console.log('No UPC found or UPC is empty - entering 0')
                     UPClist.push(0);
                 }
-                if ('Price' in row) {
+                if ('Price' in row && row['Price'].trim() !== '') {
                     CostList.push(row['Price']);
                 } else {
                     console.log('No Price found - entering 0')
                     CostList.push(0);
                 }
-                if ('ItemNo' in row) {
-                    ItemNoList.push(row['ItemNo']);
+                if ('ItemNo' in row && row['ItemNo'].trim() !== '') {
+                    ItemNoList.push(row['ItemNo'].trim());
                 } else {
                     console.log('No Item No. found - entering 0')
                     ItemNoList.push('0');
@@ -125,6 +194,10 @@ async function getDataFromCSV() {
     });
 }
 
+/**
+ * Calculates profits for each item based on its cost, Amazon's offer price, and estimated fees. Results are stored in a global array.
+ * @returns {void} Does not return a value.
+ */
 function calculateProfits() {
     // Ensure that CostList contains numeric values
     const numericCostList = CostList.map(cost => parseFloat(cost.replace(/[^\d.-]/g, '')) || 0);
@@ -154,6 +227,10 @@ function calculateProfits() {
     return profits;
 }
 
+/**
+ * Filters the calculated profits based on a minimum value and writes the filtered results to a new CSV file.
+ * @returns {void} Does not return a value.
+ */
 function filterAndWriteToCSV() {
     value = 5; // in the future get value from user
     // Filter for profits greater than or equal to the specified value
@@ -186,6 +263,10 @@ function filterAndWriteToCSV() {
         });
 }
 
+/**
+ * Retrieves an initial access token, assumes an AWS role, and then makes a series of API calls to Amazon's Selling Partner API for product information.
+ * @returns {Promise<void>} A promise that resolves once all API calls have been made.
+ */
 async function getTokenAndMakeApiCall() {
     // Step 1: Obtain the Access Token
     try {
@@ -202,8 +283,8 @@ async function getTokenAndMakeApiCall() {
             })
         });
 
-        accessToken = tokenResponse.data.access_token;
-        console.log("Access Token:", accessToken);
+        currentAccessToken = tokenResponse.data.access_token;
+        console.log("Access Token:", currentAccessToken);
 
         // Step 2: Assume an AWS Role using STS
         const stsClient = new STSClient({
@@ -223,7 +304,7 @@ async function getTokenAndMakeApiCall() {
 
         // Step 3: Make API Calls using the SellersApiClient
         const client = new SellersApiClient({
-            accessToken: accessToken,
+            accessToken: currentAccessToken,
             basePath: 'https://sellingpartnerapi-na.amazon.com',
             region: 'us-east-1',
             credentials: {
@@ -243,49 +324,17 @@ async function getTokenAndMakeApiCall() {
     }
 }
 
-// Function to refresh the token
-async function getTokenRefresh() {
-    let retryCount = 0;
-    const maxRetries = 3; // Maximum number of retries
-    const retryDelay = 10000; // Delay between retries in milliseconds
-    while (retryCount < maxRetries) {
-        try {
-            const tokenResponse = await axios({
-                method: 'post',
-                url: 'https://api.amazon.com/auth/o2/token',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-                data: qs.stringify({
-                    grant_type: 'refresh_token',
-                    refresh_token: refreshToken,
-                    client_id: clientId,
-                    client_secret: clientSecret,
-                }),
-            });
-
-            accessToken = tokenResponse.data.access_token;
-            console.log("Access Token refreshed:", accessToken);
-            return; // Token refreshed successfully, exit the function
-        } catch (error) {
-            console.error("Error refreshing token:", error.response ? error.response.data : error.message);
-            retryCount++;
-            if (retryCount >= maxRetries) {
-                throw new Error("Failed to refresh access token after maximum retry attempts.");
-            }
-            await delay(retryDelay);
-        }
-    }
-}
-
-/*  
-    https://selling-partner-api-sdk.scaleleap.org/classes/catalogitemsapiclientv20220401#searchCatalogItems
-    This function traverses through the array of UPC's and gets their sales rank and ASIN. If they are not found this is handled by
-    putting a '-1' into the slot the data would have gone. 
-*/
-// CAN PASS AN ARRAY OF UPCS TO THE API CALL TO SPEED THINGS UP!!!! But need to figure out how to handle unfound UPCs in that case. 
+// CAN PASS AN ARRAY OF UPCS TO THE API CALL TO SPEED THINGS UP!!!! But need to figure out how to handle unfound UPCs in that case.
+/**
+ * https://selling-partner-api-sdk.scaleleap.org/classes/catalogitemsapiclientv20220401#searchCatalogItems
+ * Searches for catalog items by their UPC, handling cases where no UPC is found by setting default values. Results are stored in global arrays.
+ * @returns {Promise<void>} A promise that resolves once all UPCs have been searched.
+ */
 async function searchCatalogItemsByUPC() {
+    const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
     const client = new CatalogItemsApiClientV20220401({
         accessToken: accessToken,
-        region: 'us-east-1', // Make sure to set the appropriate region
+        region: 'us-east-1',
     });
 
     for (const UPC of UPClist) {
@@ -355,12 +404,16 @@ async function searchCatalogItemsByUPC() {
     console.log(RankList);
 }
 
-// https://selling-partner-api-sdk.scaleleap.org/classes/productpricingapiclient#getCompetitivePricing
-// This function fetches competitive pricing for ASINs and stores offer prices in AMZoffer array
+/**
+ * https://selling-partner-api-sdk.scaleleap.org/classes/productpricingapiclient#getCompetitivePricing
+ * Fetches competitive pricing for each ASIN in the global list, storing offer prices in a global array.
+ * @returns {Promise<void>} A promise that resolves once all ASINs have been processed.
+ */
 async function getItemOffersForASIN() {
+    const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
     const client = new ProductPricingApiClient({
         accessToken: accessToken,
-        region: 'us-east-1', // Make sure to set the appropriate region
+        region: 'us-east-1',
     });
 
     for (const ASIN of ASINlist) {
@@ -452,8 +505,13 @@ async function getItemOffersForASIN() {
     }
 }
 
-// https://selling-partner-api-sdk.scaleleap.org/classes/productfeesapiclient#getMyFeesEstimateForASIN
+/**
+ * https://selling-partner-api-sdk.scaleleap.org/classes/productfeesapiclient#getMyFeesEstimateForASIN
+ * Retrieves fees estimates for each ASIN in the global list, handling cases where no fees are found by setting default values.
+ * @returns {Promise<void>} A promise that resolves once fees estimates for all ASINs have been retrieved.
+ */
 async function getFeesEstimateForASINList() {
+    const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
     const client = new ProductFeesApiClient({
         accessToken: accessToken,
         region: 'us-east-1',
@@ -534,7 +592,10 @@ async function getFeesEstimateForASINList() {
     console.log(feesEstimates); // Log the fees estimates for debugging
 }
 
-// Function to start the process
+/**
+ * Initiates the overall process, including token refresh setup, data extraction from CSV, making API calls, calculating profits, and writing results to CSV.
+ * @returns {Promise<void>} A promise that resolves once the entire process has completed successfully or rejects on error.
+ */
 async function startProcess() {
     try {
         // Now set up the token refresh every ~hour after initial token retrieval
