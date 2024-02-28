@@ -202,7 +202,7 @@ async function getDataFromCSV() {
  */
 function calculateProfits() {
     // Ensure that CostList contains numeric values
-    const numericCostList = CostList.map(cost => parseFloat(cost.replace(/[^\d.-]/g, '')) || 0);
+    const numericCostList = CostList.map(cost => parseFloat(String(cost).replace(/[^\d.-]/g, '')) || 0);
 
     for (let i = 0; i < ASINlist.length; i++) {
         const asin = ASINlist[i] || 'Unknown';
