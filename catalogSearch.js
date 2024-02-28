@@ -398,6 +398,10 @@ async function searchCatalogItemsByUPC() {
                     break;
                 }
             }
+            // if rate limited greater than max retries, enter default values
+            console.log(`Rate limited too many times on UPC ${UPC}, entering default values`);
+            ASINlist.push('0');
+            RankList.push(0);
         }
         // Delay for .5 seconds before making the next API call
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -490,6 +494,12 @@ async function getItemOffersForASIN() {
                     break;
                 }
             }
+            // if rate limited greater than max retries, enter default values
+            console.log(`Rate limited too many times on ASIN ${ASIN}, entering default values`);
+            AMZoffer.push({
+                ASIN: ASIN,
+                OfferPrice: 0,
+            });
         }
 
         // Delay for 1 seconds before making the next API call
@@ -583,6 +593,12 @@ async function getFeesEstimateForASINList() {
                     break;
                 }
             }
+            // if rate limited greater than max retries, enter default values
+            console.log(`Rate limited too many times on ASIN ${offer.ASIN}, entering default values`);
+            feesEstimates.push({
+                ASIN: offer.ASIN,
+                FeesEstimate: 0,
+            });
         }
         // Delay for 3 seconds before making the next API call
         await new Promise(resolve => setTimeout(resolve, 3000));
