@@ -30,6 +30,8 @@ const clientId = process.env.AMAZON_CLIENT_ID;
 const clientSecret = process.env.AMAZON_CLIENT_SECRET;
 const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
 const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+const RoleArn = process.env.RoleArn;
+const RoleSessionName = process.env.RoleSessionName;
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
@@ -297,8 +299,8 @@ async function getTokenAndMakeApiCall() {
 
         const { Credentials } = await stsClient.send(
             new AssumeRoleCommand({
-                RoleArn: 'arn:aws:iam::851725415836:role/SellingPartnerAPIRole',
-                RoleSessionName: 'SellingPartnerAPIRole',
+                RoleArn: RoleArn,
+                RoleSessionName: RoleSessionName,
             })
         );
 
