@@ -17,6 +17,7 @@ const { SellersApiClient, CatalogItemsApiClientV20220401, ProductPricingApiClien
 
 // Global Variables
 let currentAccessToken = '';
+let ProductData = [];
 let ASINlist = [];
 let AMZoffer = [];
 let UPClist = [];
@@ -167,6 +168,7 @@ async function getDataFromCSV() {
             .on('data', (row) => {
                 // look for data and handle empty string
                 if ('UPC' in row && row['UPC'].trim() !== '') {
+                    // consider reomving this trim since it takes off leading 0's
                     UPClist.push(row['UPC'].trim());
                 } else {
                     console.log('No UPC found or UPC is empty - entering 0')
@@ -205,6 +207,20 @@ function calculateProfits() {
     const numericCostList = CostList.map(cost => parseFloat(String(cost).replace(/[^\d.-]/g, '')) || 0);
 
     for (let i = 0; i < ASINlist.length; i++) {
+        if (ASINlist[i] === '0') {
+            console.log(`Skipping profit calculation for placeholder ASIN at index ${i}`);
+            profits.push({
+                ItemNo: ItemNoList[i],
+                UPC: UPClist[i] || 'Unknown', // Use 'Unknown' if UPC is missing
+                ASIN: '0', // Placeholder value
+                SalesRank: -1, // Indicative of missing data
+                ListPrice: 0,
+                Fees: 0,
+                Cost: parseFloat(CostList[i]) || 0,
+                Profit: 0,
+            });
+            continue; // Skip to the next iteration
+        }
         const asin = ASINlist[i] || 'Unknown';
         const offer = AMZoffer.find(offer => offer.ASIN === asin);
         const feesEstimate = feesEstimates.find(fee => fee.ASIN === asin);
@@ -236,7 +252,13 @@ function calculateProfits() {
 function filterAndWriteToCSV() {
     value = 5; // in the future get value from user
     // Filter for profits greater than or equal to the specified value
-    const filteredProfits = profits.filter(item => item.Profit >= value);
+    let filteredProfits = profits.filter(item => item.Profit >= value);
+
+    // Filter out entries with default values in key fields
+    filteredProfits = filteredProfits.filter(item => {
+        // Adjust these conditions based on what constitutes a 'default value' in your context
+        return item.ASIN !== '0' && item.UPC !== '0' && item.ItemNo !== '0';
+    });
 
     // Define the path and headers for the CSV file
     const csvWriter = createCsvWriter({
@@ -416,6 +438,14 @@ async function searchCatalogItemsByUPC() {
  */
 async function getItemOffersForASIN() {
     for (const ASIN of ASINlist) {
+        if (ASIN === '0') {
+            console.log(`Skipping API call for placeholder ASIN: ${ASIN}`);
+            AMZoffer.push({
+                ASIN: ASIN,
+                OfferPrice: 0,
+            });
+            continue; // Skip the rest of the loop for this iteration
+        }
         const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
         const client = new ProductPricingApiClient({
             accessToken: accessToken,
@@ -428,15 +458,6 @@ async function getItemOffersForASIN() {
 
         while (retryCount < maxRetries) {
             try {
-                // Check if ASIN is '0' and handle accordingly
-                if (ASIN === '0') {
-                    console.log(`ASIN is '0', setting offer price to 0 for ASIN: ${ASIN}`);
-                    AMZoffer.push({
-                        ASIN: ASIN,
-                        OfferPrice: 0,
-                    });
-                    break; // Exit the loop if ASIN is '0'
-                }
                 // The getItemOffers call for each ASIN in the list
                 response = await client.getItemOffers({
                     itemCondition: 'New',
@@ -479,8 +500,14 @@ async function getItemOffersForASIN() {
 
                 break; // Break from retry loop on success
             } catch (error) {
+                //console.error(`Attempt ${retryCount + 1}: Error fetching item offers for ASIN ${ASIN}:`, error);
                 // Check for the specific SellingPartnerTooManyRequestsError
                 if (error.name === 'SellingPartnerTooManyRequestsError') {
+                    if (retryCount >= maxRetries - 1) {
+                        console.log(`Rate limited too many times on ASIN ${ASIN}, entering default values`);
+                        AMZoffer.push({ ASIN: ASIN, OfferPrice: 0 });
+                        break; // Exit the loop if retries are exhausted
+                    }
                     console.log(`Rate limited on ASIN ${ASIN}, retrying after ${retryDelay}ms...`);
                     await delay(retryDelay); // Wait for retryDelay milliseconds before retrying
                     retryCount++; // Increment the retry counter
@@ -494,12 +521,6 @@ async function getItemOffersForASIN() {
                     break;
                 }
             }
-            // if rate limited greater than max retries, enter default values
-            console.log(`Rate limited too many times on ASIN ${ASIN}, entering default values`);
-            AMZoffer.push({
-                ASIN: ASIN,
-                OfferPrice: 0,
-            });
         }
 
         // Delay for 1 seconds before making the next API call
@@ -522,6 +543,11 @@ async function getItemOffersForASIN() {
  */
 async function getFeesEstimateForASINList() {
     for (const offer of AMZoffer) {
+        if (offer.ASIN === '0') {
+            console.log(`Skipping fee estimate for placeholder ASIN: ${offer.ASIN}`);
+            feesEstimates.push({ ASIN: offer.ASIN, FeesEstimate: 0 });
+            continue; // Move to the next iteration without making API calls
+        }
         const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
         const client = new ProductFeesApiClient({
             accessToken: accessToken,
