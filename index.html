@@ -1,69 +1,84 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Product Analyzer</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #808080; /* Grey background */
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: start;
-            height: 100vh;
-            color: black; /* Black text */
-            font-family: Arial, sans-serif;
-        }
-        .header {
-            margin-top: 20px; /* Adjust as needed for exact positioning */
-            text-align: center;
-            font-size: 24px;
-        }
-        .buttons {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin-top: 50px; /* Space from the header or top */
-        }
-        button {
-            background-color: #f0f0f0; /* Light grey background */
-            border: none;
-            padding: 10px 20px;
-            margin: 10px;
-            cursor: pointer;
-            font-size: 16px;
-        }
-        button:hover {
-            background-color: #dcdcdc; /* Slightly darker grey on hover */
-        }
-    </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
     <div class="header">
         Product Analyzer
     </div>
     <div class="buttons">
-        <button onclick="productResearch()">Product Research</button>
-        <button onclick="backorderLog()">Backorder Log</button>
-        <button onclick="estimateSpend()">Estimate Spend</button>
+        <button onclick="showModule('product-research')">Product Research</button>
+        <button onclick="showModule('backorder-log')">Backorder Log</button>
+        <button onclick="showModule('estimate-spend')">Estimate Spend</button>
+    </div>
+    <div id="module-content-title" class="module-content-title">Product Research</div>
+    <div id="product-research" class="module">
+        <h2>Product Research</h2>
+        <p>Select a CSV file to analyze for profitable products:</p>
+        <button onclick="selectFile()">Choose CSV File</button>
+        <button id="start-analysis" onclick="startAnalysis()">Start Analysis</button>
+        <p id="selected-file">No file selected</p>
+        <!-- Add more form elements or buttons as needed for the module -->
+    </div>
+    <div id="backorder-log" class="module hidden">
+        <h2>Backorder Log</h2>
+        <!-- Content specific to the Backorder Log module -->
+    </div>
+    <div id="estimate-spend" class="module hidden">
+        <h2>Estimate Spend</h2>
+        <!-- Content specific to the Estimate Spend module -->
+    </div>
     </div>
 
     <script>
-        function productResearch() {
-            console.log("Product Research clicked");
-            // Implement your function here
+        // When the "Choose CSV File" button is clicked
+        function selectFile() {
+            window.api.selectFile();
         }
-        function backorderLog() {
-            console.log("Backorder Log clicked");
-            // Implement your function here
+
+        // Listen for the file selection event
+        window.api.onFileSelected((filePath) => {
+            console.log('Received file path:', filePath);
+            document.getElementById('selected-file').textContent = `Selected file: ${filePath}`;
+        });
+
+        // Function to show a specific module
+        function showModule(moduleId) {
+            // Hide all modules
+            document.querySelectorAll('.module').forEach((module) => {
+                module.classList.add('hidden');
+            });
+
+            // Show the requested module
+            const moduleToShow = document.getElementById(moduleId);
+            if (moduleToShow) {
+                moduleToShow.classList.remove('hidden');
+                // Update the module content title
+                document.getElementById('module-content-title').textContent = moduleId.replace('-', ' ');
+            }
         }
-        function estimateSpend() {
-            console.log("Estimate Spend clicked");
-            // Implement your function here
+
+        // When the "Start Analysis" button is clicked
+        function startAnalysis() {
+            const selectedFileText = document.getElementById('selected-file').textContent;
+            const filePath = selectedFileText.replace('Selected file: ', '').trim();
+            if (filePath && filePath !== 'No file selected') {
+                console.log('Sending file path for analysis:', filePath); // This should log
+                window.api.startAnalysis(filePath);
+            } else {
+                alert('Please select a CSV file first.');
+            }
         }
+
+        // Initial call to show the first module by default
+        showModule('product-research');
     </script>
 </body>
+
 </html>
