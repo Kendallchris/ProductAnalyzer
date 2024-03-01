@@ -18,14 +18,7 @@ const { SellersApiClient, CatalogItemsApiClientV20220401, ProductPricingApiClien
 // Global Variables
 let currentAccessToken = '';
 let ProductData = [];
-let ASINlist = [];
-let AMZoffer = [];
-let UPClist = [];
-let CostList = [];
-let feesEstimates = [];
-let RankList = [];
 let profits = [];
-let ItemNoList = [];
 const refreshToken = process.env.AMAZON_REFRESH_TOKEN;
 const clientId = process.env.AMAZON_CLIENT_ID;
 const clientSecret = process.env.AMAZON_CLIENT_SECRET;
@@ -100,9 +93,27 @@ function promptForCSVFilePath() {
     return new Promise((resolve) => {
         rl.question('Enter the path to your CSV file: ', (filePath) => {
             resolve(filePath);
-            rl.close();
+            //rl.close();
         });
     });
+}
+
+/**
+ * Prompts the user for input using a provided query and returns the input as a promise.
+ * If the user does not enter any data and hits enter, an empty array is returned to signify no companies to ignore.
+ * @param {string} query The question or prompt to display to the user.
+ * @returns {Promise<string[]>} A promise that resolves with an array of company names, or an empty array if no input was provided.
+ */
+function promptForData(query) {
+    return new Promise(resolve => rl.question(query, (answer) => {
+        const trimmedAnswer = answer.trim();
+        if (trimmedAnswer === '') {
+            resolve([]); // Resolve with an empty array if no input is provided
+        } else {
+            const companies = trimmedAnswer.split(',').map(company => company.trim().toLowerCase()); // Convert to array and normalize
+            resolve(companies);
+        }
+    }));
 }
 
 /**
@@ -147,13 +158,17 @@ async function findFirstMatchingHeader(filePath, optionsList) {
  */
 async function getDataFromCSV() {
     const filePath = await promptForCSVFilePath();
+    const ignoreCompanies = await promptForData("Enter comma-separated companies to ignore:"); // Prompt user
+    //const ignoreCompanies = ignoreCompaniesInput.split(",").map(company => company.trim().toLowerCase()); // Convert to array and normalize
     const UPCOptions = ['UPC', 'Upc'];
     const itemNoOptions = ['Item No.', 'Item Number', 'SKU'];
     const priceOptions = ['FIRST_PricePerPiece', 'Price', 'Price Per Piece'];
+    const companyOptions = ['Company', 'COMPANY']; // Add company options
 
     const firstUPCHeaderIndex = await findFirstMatchingHeader(filePath, UPCOptions);
     const firstItemNoHeaderIndex = await findFirstMatchingHeader(filePath, itemNoOptions);
     const firstPriceHeaderIndex = await findFirstMatchingHeader(filePath, priceOptions);
+    const firstCompanyHeaderIndex = await findFirstMatchingHeader(filePath, companyOptions); // Find the company header index
 
     return new Promise((resolve, reject) => {
         fs.createReadStream(filePath)
@@ -162,37 +177,28 @@ async function getDataFromCSV() {
                     if (index === firstUPCHeaderIndex) return 'UPC';
                     if (index === firstItemNoHeaderIndex) return 'ItemNo';
                     if (index === firstPriceHeaderIndex) return 'Price';
+                    if (index === firstCompanyHeaderIndex) return 'Company'; // Map the company column
                     return null; // Ignore other columns
                 }
             }))
             .on('data', (row) => {
-                // look for data and handle empty string
-                if ('UPC' in row && row['UPC'].trim() !== '') {
-                    // consider reomving this trim since it takes off leading 0's
-                    UPClist.push(row['UPC'].trim());
+                if (!ignoreCompanies.includes(row['Company'].trim().toLowerCase())) { // Check if company is not in the ignore list
+                    // Process and add product to ProductData if company is not ignored
+                    const product = {
+                        UPC: row['UPC'] && row['UPC'].trim() !== '' ? row['UPC'].trim() : '0', // Use default value '0' if UPC is empty
+                        Cost: row['Price'] && row['Price'].trim() !== '' ? row['Price'].trim() : '0', // Use default value '0' if Price is empty
+                        ItemNo: row['ItemNo'] && row['ItemNo'].trim() !== '' ? row['ItemNo'].trim() : '0', // Use default value '0' if ItemNo is empty
+                        Company: row['Company'] && row['Company'].trim() !== '' ? row['Company'].trim() : 'Unknown' // Default value 'Unknown' if Company is empty
+                    };
+                    ProductData.push(product); // Add the product object to the ProductData array
                 } else {
-                    console.log('No UPC found or UPC is empty - entering 0')
-                    UPClist.push(0);
-                }
-                if ('Price' in row && row['Price'].trim() !== '') {
-                    CostList.push(row['Price']);
-                } else {
-                    console.log('No Price found - entering 0')
-                    CostList.push(0);
-                }
-                if ('ItemNo' in row && row['ItemNo'].trim() !== '') {
-                    ItemNoList.push(row['ItemNo'].trim());
-                } else {
-                    console.log('No Item No. found - entering 0')
-                    ItemNoList.push('0');
+                    // Optionally handle ignored companies, such as logging
+                    console.log(`Ignoring product from company: ${row.company}`);
                 }
             })
             .on('end', () => {
-                console.log('CSV file successfully processed:');
-                console.log('UPC List:', UPClist);
-                console.log('Cost List:', CostList);
-                console.log('Item No List:', ItemNoList);
-                resolve();
+                console.log('CSV file successfully processed:', ProductData);
+                resolve(ProductData); // Resolve the promise with the ProductData array
             })
             .on('error', reject);
     });
@@ -203,46 +209,34 @@ async function getDataFromCSV() {
  * @returns {void} Does not return a value.
  */
 function calculateProfits() {
-    // Ensure that CostList contains numeric values
-    const numericCostList = CostList.map(cost => parseFloat(String(cost).replace(/[^\d.-]/g, '')) || 0);
-
-    for (let i = 0; i < ASINlist.length; i++) {
-        if (ASINlist[i] === '0') {
-            console.log(`Skipping profit calculation for placeholder ASIN at index ${i}`);
-            profits.push({
-                ItemNo: ItemNoList[i],
-                UPC: UPClist[i] || 'Unknown', // Use 'Unknown' if UPC is missing
-                ASIN: '0', // Placeholder value
-                SalesRank: -1, // Indicative of missing data
-                ListPrice: 0,
-                Fees: 0,
-                Cost: parseFloat(CostList[i]) || 0,
-                Profit: 0,
-            });
-            continue; // Skip to the next iteration
+    // Iterate over the ProductData array to calculate and update profits
+    ProductData.forEach(product => {
+        if (product.ASIN === '0') {
+            console.log(`Skipping profit calculation for placeholder ASIN: ${product.ASIN}`);
+            // Update the product object with default profit calculation values
+            product.SalesRank = -1;
+            product.ListPrice = 0;
+            product.Fees = 0;
+            product.Cost = parseFloat(product.Cost) || 0;
+            product.Profit = 0;
+            return; // Continue to the next product
         }
-        const asin = ASINlist[i] || 'Unknown';
-        const offer = AMZoffer.find(offer => offer.ASIN === asin);
-        const feesEstimate = feesEstimates.find(fee => fee.ASIN === asin);
-        const cost = numericCostList[i]; // Use the numeric cost from the updated list
 
-        // Calculate profit only if we have a valid offer and fees estimate
-        let profit = offer && feesEstimate ? offer.OfferPrice - (feesEstimate.FeesEstimate + cost) : 0;
+        // Ensure that product.Cost is a numeric value
+        const cost = parseFloat(String(product.Cost).replace(/[^\d.-]/g, '')) || 0;
+        product.Cost = cost; // Update the product with the numeric cost value
 
-        profits.push({
-            ItemNo: ItemNoList[i],
-            UPC: UPClist[i] || 'Unknown', // Use Unknown if UPC is missing
-            ASIN: asin,
-            SalesRank: RankList[i] || -1, // Use -1 if SalesRank is missing
-            ListPrice: offer ? offer.OfferPrice : 0,
-            Fees: feesEstimate ? feesEstimate.FeesEstimate : 0,
-            Cost: cost,
-            Profit: profit
-        });
-    }
+        // Calculate profit using product properties
+        let profit = product.OfferPrice && product.FeesEstimate ? product.OfferPrice - (product.FeesEstimate + cost) : 0;
+        product.Profit = profit; // Update the product with the calculated profit
 
-    console.log(profits);
-    return profits;
+        // Log the updated product for debugging
+        console.log(`Profit calculated for ASIN: ${product.ASIN} - Profit: ${product.Profit}`);
+    });
+
+    // Return the updated ProductData with profits
+    console.log('Updated ProductData with profits:', ProductData);
+    return ProductData;
 }
 
 /**
@@ -355,18 +349,21 @@ async function getTokenAndMakeApiCall() {
  * @returns {Promise<void>} A promise that resolves once all UPCs have been searched.
  */
 async function searchCatalogItemsByUPC() {
-    for (const UPC of UPClist) {
+    for (let product of ProductData) { // Iterate over the global `ProductData` array
+        const UPC = product.UPC;
         const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
         const client = new CatalogItemsApiClientV20220401({
             accessToken: accessToken,
             region: 'us-east-1',
         });
-        // catch if there was not UPC found and set default values
-        if (UPC === 0) {
-            ASINlist.push('0');
-            RankList.push(0);
+
+        if (UPC === '0') { // Check for default UPC value
+            product.ASIN = '0';
+            product.Rank = 0;
+            console.log(`Dummy UPC value - adding 0 for ASIN and Rank.`);
             continue;
         }
+
         let retryCount = 0;
         const maxRetries = 3; // Maximum number of retries
         const retryDelay = 3000; // Delay between retries in milliseconds
@@ -375,60 +372,40 @@ async function searchCatalogItemsByUPC() {
                 const response = await client.searchCatalogItems({
                     marketplaceIds: ['ATVPDKIKX0DER'],
                     identifiersType: "UPC",
-                    identifiers: [UPC.toString()],
+                    identifiers: [UPC],
                     includedData: ['salesRanks'],
                 });
 
-                // Assuming the response has an `items` array
                 if (response.data && response.data.items && response.data.items.length > 0) {
                     const item = response.data.items[0]; // Assuming we're interested in the first item
-                    const salesRanks = item.salesRanks;
-                    const ASIN = item?.asin;
-                    if (ASIN) {
-                        ASINlist.push(ASIN); // Add the ASIN to the list
-                        console.log(`Added ASIN: ${ASIN} for UPC: ${UPC}`);
-                    } else {
-                        ASINlist.push('0');
-                        console.log(`ASIN not found for UPC: ${UPC}`);
-                    }
-
-                    // Check if there are sales ranks and display group ranks
-                    if (salesRanks.length > 0 && salesRanks[0].displayGroupRanks.length > 0) {
-                        const displayGroupRank = salesRanks[0].displayGroupRanks[0]; // Accessing the first display group rank
-                        console.log(`Rank: ${displayGroupRank.rank}`);
-                        RankList.push(displayGroupRank.rank);
-                    } else {
-                        console.log('No display group ranks available.');
-                        RankList.push(0);
-                    }
+                    product.ASIN = item.asin ? item.asin : '0'; // Update the product with ASIN
+                    console.log(`Added ASIN: ${product.ASIN} for UPC: ${product.UPC}`);
+                    const salesRank = item.salesRanks && item.salesRanks.length > 0 && item.salesRanks[0].displayGroupRanks.length > 0
+                        ? item.salesRanks[0].displayGroupRanks[0].rank : 0;
+                    product.Rank = salesRank; // Update the product with Rank
+                    console.log(`Rank: ${salesRank}`);
                 } else {
-                    console.log(`No results found for the UPC.`);
-                    ASINlist.push('0');
-                    RankList.push(0);
+                    product.ASIN = '0';
+                    product.Rank = 0;
+                    console.log(`ASIN not found for UPC: ${product.UPC}. Setting ASIN and Rank to 0.`);
                 }
                 break; // Break from retry loop on success
             } catch (error) {
                 if (error.name === 'SellingPartnerTooManyRequestsError') {
                     console.log(`Rate limited on UPC ${UPC}, retrying after ${retryDelay}ms...`);
                     await new Promise(resolve => setTimeout(resolve, retryDelay));
-                    retryCount++; // Increment the retry counter
+                    retryCount++;
                 } else {
-                    // If the error is not a rate limit error, log it and stop retrying
-                    console.error(`Error searching UPC ${UPC}. Setting value to 0:`, error);
-                    ASINlist.push('0');
-                    RankList.push(0);
+                    console.error(`Error searching UPC ${UPC}. Setting ASIN and Rank to 0:`, error);
+                    product.ASIN = '0';
+                    product.Rank = 0;
                     break;
                 }
             }
-            // if rate limited greater than max retries, enter default values
-            console.log(`Rate limited too many times on UPC ${UPC}, entering default values`);
-            ASINlist.push('0');
-            RankList.push(0);
         }
-        // Delay for .5 seconds before making the next API call
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 500)); // Delay before making the next API call
     }
-    console.log(RankList);
+    console.log('Updated ProductData with ASIN and Rank:', ProductData);
 }
 
 /**
@@ -437,103 +414,71 @@ async function searchCatalogItemsByUPC() {
  * @returns {Promise<void>} A promise that resolves once all ASINs have been processed.
  */
 async function getItemOffersForASIN() {
-    for (const ASIN of ASINlist) {
+    for (let product of ProductData) {
+        const ASIN = product.ASIN;
         if (ASIN === '0') {
             console.log(`Skipping API call for placeholder ASIN: ${ASIN}`);
-            AMZoffer.push({
-                ASIN: ASIN,
-                OfferPrice: 0,
-            });
+            product.OfferPrice = 0; // Update directly in ProductData
             continue; // Skip the rest of the loop for this iteration
         }
+
         const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
         const client = new ProductPricingApiClient({
             accessToken: accessToken,
             region: 'us-east-1',
         });
+
         let retryCount = 0;
-        let response;
         const maxRetries = 3; // Maximum number of retries
         const retryDelay = 3000; // Delay between retries in milliseconds
 
         while (retryCount < maxRetries) {
             try {
-                // The getItemOffers call for each ASIN in the list
-                response = await client.getItemOffers({
+                // The getItemOffers call for each ASIN in ProductData
+                let response = await client.getItemOffers({
                     itemCondition: 'New',
                     marketplaceId: 'ATVPDKIKX0DER',
                     customerType: 'Consumer',
                     asin: ASIN.toString(),
                 });
 
-                // Extracting the lowest new price from the response
-                // Access the payload for the structured response
-                if (response.data && response.data.payload && response.data.payload.Summary && response.data.payload.Summary.LowestPrices && response.data.payload.Summary.LowestPrices.length > 0) {
-                    // Find the lowest new price across all fulfillment channels
+                if (response.data && response.data.payload && response.data.payload.Summary &&
+                    response.data.payload.Summary.LowestPrices && response.data.payload.Summary.LowestPrices.length > 0) {
                     const lowestNewPrice = response.data.payload.Summary.LowestPrices.reduce((lowest, current) => {
                         return (!lowest || current.LandedPrice.Amount < lowest.LandedPrice.Amount) ? current : lowest;
                     });
 
                     if (lowestNewPrice && lowestNewPrice.LandedPrice && lowestNewPrice.LandedPrice.Amount) {
-                        const lowestPriceAmount = lowestNewPrice.LandedPrice.Amount;
-
-                        AMZoffer.push({
-                            ASIN: ASIN,
-                            OfferPrice: lowestPriceAmount,
-                        });
-
-                        console.log(`Added lowest offer price for ASIN: ${ASIN} - $${lowestPriceAmount}`);
+                        product.OfferPrice = lowestNewPrice.LandedPrice.Amount; // Update directly in ProductData
+                        console.log(`Added lowest offer price for ASIN: ${ASIN} - $${product.OfferPrice}`);
                     } else {
                         console.log(`Lowest new price information not found for ASIN: ${ASIN}`);
-                        AMZoffer.push({
-                            ASIN: ASIN,
-                            OfferPrice: 0,
-                        });
+                        product.OfferPrice = 0; // Update directly in ProductData
                     }
                 } else {
                     console.log(`No offers found for ASIN: ${ASIN}`);
-                    AMZoffer.push({
-                        ASIN: ASIN,
-                        OfferPrice: 0,
-                    });
+                    product.OfferPrice = 0; // Update directly in ProductData
                 }
 
                 break; // Break from retry loop on success
             } catch (error) {
-                //console.error(`Attempt ${retryCount + 1}: Error fetching item offers for ASIN ${ASIN}:`, error);
-                // Check for the specific SellingPartnerTooManyRequestsError
                 if (error.name === 'SellingPartnerTooManyRequestsError') {
-                    if (retryCount >= maxRetries - 1) {
-                        console.log(`Rate limited too many times on ASIN ${ASIN}, entering default values`);
-                        AMZoffer.push({ ASIN: ASIN, OfferPrice: 0 });
-                        break; // Exit the loop if retries are exhausted
-                    }
                     console.log(`Rate limited on ASIN ${ASIN}, retrying after ${retryDelay}ms...`);
-                    await delay(retryDelay); // Wait for retryDelay milliseconds before retrying
-                    retryCount++; // Increment the retry counter
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    retryCount++;
                 } else {
-                    // If the error is not a rate limit error, log it and break out of the loop
                     console.error(`Error fetching item offers for ASIN ${ASIN}:`, error);
-                    AMZoffer.push({
-                        ASIN: ASIN,
-                        OfferPrice: 0,
-                    });
+                    product.OfferPrice = 0; // Update directly in ProductData
                     break;
                 }
             }
         }
-
-        // Delay for 1 seconds before making the next API call
+        // Delay for 1 second before making the next API call
         await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    // Debugging
-    for (const ASIN of ASINlist) {
-        console.log(ASIN);
-    }
-    for (const offer of AMZoffer) {
-        console.log(offer);
-    }
+    // Debugging output of ProductData to verify updates
+    console.log('Updated ProductData with offer prices:', ProductData);
 }
 
 /**
@@ -542,10 +487,10 @@ async function getItemOffersForASIN() {
  * @returns {Promise<void>} A promise that resolves once fees estimates for all ASINs have been retrieved.
  */
 async function getFeesEstimateForASINList() {
-    for (const offer of AMZoffer) {
-        if (offer.ASIN === '0') {
-            console.log(`Skipping fee estimate for placeholder ASIN: ${offer.ASIN}`);
-            feesEstimates.push({ ASIN: offer.ASIN, FeesEstimate: 0 });
+    for (let product of ProductData) {
+        if (product.ASIN === '0') {
+            console.log(`Skipping fee estimate for placeholder ASIN: ${product.ASIN}`);
+            product.FeesEstimate = 0; // Set directly in ProductData
             continue; // Move to the next iteration without making API calls
         }
         const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
@@ -553,10 +498,6 @@ async function getFeesEstimateForASINList() {
             accessToken: accessToken,
             region: 'us-east-1',
         });
-        if (offer.ASIN === '0') {
-            feesEstimates.push({ ASIN: offer.ASIN, FeesEstimate: 0 });
-            continue;
-        }
 
         let retryCount = 0;
         const maxRetries = 3; // Maximum number of retries
@@ -566,71 +507,48 @@ async function getFeesEstimateForASINList() {
         while (retryCount < maxRetries) {
             try {
                 response = await client.getMyFeesEstimateForASIN({
-                    asin: offer.ASIN,
+                    asin: product.ASIN,
                     body: {
                         FeesEstimateRequest: {
                             MarketplaceId: 'ATVPDKIKX0DER',
                             IdType: 'ASIN',
-                            IdValue: offer.ASIN,
+                            IdValue: product.ASIN,
                             IsAmazonFulfilled: true,
                             PriceToEstimateFees: {
-                                ListingPrice: { CurrencyCode: 'USD', Amount: offer.OfferPrice },
+                                ListingPrice: { CurrencyCode: 'USD', Amount: product.OfferPrice },
                                 Shipping: { CurrencyCode: 'USD', Amount: 0 },
                             },
-                            Identifier: `request_${offer.ASIN}`,
+                            Identifier: `request_${product.ASIN}`,
                         }
                     }
                 });
 
-                if (response && response.status !== 429) {
-                    // If the request was successful or did not return 429, process the response
-                    if (response.data && response.data.payload && response.data.payload.FeesEstimateResult && response.data.payload.FeesEstimateResult.FeesEstimate && response.data.payload.FeesEstimateResult.FeesEstimate.TotalFeesEstimate && response.data.payload.FeesEstimateResult.FeesEstimate.TotalFeesEstimate.Amount) {
-                        feesEstimates.push({
-                            ASIN: offer.ASIN,
-                            FeesEstimate: response.data.payload.FeesEstimateResult.FeesEstimate.TotalFeesEstimate.Amount,
-                        });
-                        console.log(`Retrieved Fee Estimate for ASIN: ${offer.ASIN} - ${response.data.payload.FeesEstimateResult.FeesEstimate.TotalFeesEstimate.Amount}`);
-                    } else {
-                        console.log(`Fees not found for ASIN ${offer.ASIN}. Inputting 0.`);
-                        feesEstimates.push({
-                            ASIN: offer.ASIN,
-                            FeesEstimate: 0,
-                        });
-                    }
-                    break; // Break out of the loop on success
+                if (response && response.data && response.data.payload && response.data.payload.FeesEstimateResult && response.data.payload.FeesEstimateResult.FeesEstimate && response.data.payload.FeesEstimateResult.FeesEstimate.TotalFeesEstimate && response.data.payload.FeesEstimateResult.FeesEstimate.TotalFeesEstimate.Amount) {
+                    product.FeesEstimate = response.data.payload.FeesEstimateResult.FeesEstimate.TotalFeesEstimate.Amount;
+                    console.log(`Retrieved Fee Estimate for ASIN: ${product.ASIN} - ${product.FeesEstimate}`);
+                } else {
+                    console.log(`Fees not found for ASIN ${product.ASIN}. Inputting 0.`);
+                    product.FeesEstimate = 0; // Set directly in ProductData
                 }
-                // Handle the case if response status is 429 without throwing an error
-                if (response && response.status === 429) {
-                    throw new Error('Rate limited');
-                }
+                break; // Break out of the loop on success
             } catch (error) {
-                // Check for the specific SellingPartnerTooManyRequestsError
                 if (error.name === 'SellingPartnerTooManyRequestsError') {
-                    console.log(`Rate limited on ASIN ${offer.ASIN}, retrying after ${retryDelay}ms...`);
-                    await delay(retryDelay); // Wait for retryDelay milliseconds before retrying
+                    console.log(`Rate limited on ASIN ${product.ASIN}, retrying after ${retryDelay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
                     retryCount++; // Increment the retry counter
                 } else {
-                    // If the error is not a rate limit error, log it and break out of the loop
-                    console.error(`Error fetching fees estiate for ASIN ${offer.ASIN}:`, error);
-                    feesEstimates.push({
-                        ASIN: offer.ASIN,
-                        FeesEstimate: 0,
-                    });
+                    console.error(`Error fetching fees estimate for ASIN ${product.ASIN}:`, error);
+                    product.FeesEstimate = 0; // Set directly in ProductData
                     break;
                 }
             }
-            // if rate limited greater than max retries, enter default values
-            console.log(`Rate limited too many times on ASIN ${offer.ASIN}, entering default values`);
-            feesEstimates.push({
-                ASIN: offer.ASIN,
-                FeesEstimate: 0,
-            });
         }
         // Delay for 3 seconds before making the next API call
         await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
-    console.log(feesEstimates); // Log the fees estimates for debugging
+    // Log the updated ProductData for debugging
+    console.log('Updated ProductData with fees estimates:', ProductData);
 }
 
 /**
