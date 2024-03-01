@@ -18,7 +18,6 @@ const { SellersApiClient, CatalogItemsApiClientV20220401, ProductPricingApiClien
 // Global Variables
 let currentAccessToken = '';
 let ProductData = [];
-let profits = [];
 const refreshToken = process.env.AMAZON_REFRESH_TOKEN;
 const clientId = process.env.AMAZON_CLIENT_ID;
 const clientSecret = process.env.AMAZON_CLIENT_SECRET;
@@ -244,14 +243,17 @@ function calculateProfits() {
  * @returns {void} Does not return a value.
  */
 function filterAndWriteToCSV() {
-    value = 5; // in the future get value from user
+    // const value = await promptForData("Enter the minimum profit value to filter by:"); // Get value from user
+    // Convert value to a number
+    // const numericValue = Number(value);
+    numericValue = 5;
     // Filter for profits greater than or equal to the specified value
-    let filteredProfits = profits.filter(item => item.Profit >= value);
+    let filteredProfits = ProductData.filter(product => product.Profit >= numericValue);
 
     // Filter out entries with default values in key fields
-    filteredProfits = filteredProfits.filter(item => {
+    filteredProfits = filteredProfits.filter(product => {
         // Adjust these conditions based on what constitutes a 'default value' in your context
-        return item.ASIN !== '0' && item.UPC !== '0' && item.ItemNo !== '0';
+        return product.ASIN !== '0' && product.UPC !== '0' && product.ItemNo !== '0';
     });
 
     // Define the path and headers for the CSV file
@@ -261,9 +263,10 @@ function filterAndWriteToCSV() {
             { id: 'ItemNo', title: 'Item No.' },
             { id: 'UPC', title: 'UPC' },
             { id: 'ASIN', title: 'ASIN' },
-            { id: 'SalesRank', title: 'SalesRank' },
-            { id: 'ListPrice', title: 'ListPrice' },
-            { id: 'Fees', title: 'Fees' },
+            { id: 'Company', title: 'Company' },
+            { id: 'Rank', title: 'SalesRank' },
+            { id: 'OfferPrice', title: 'ListPrice' },
+            { id: 'FeesEstimate', title: 'Fees' },
             { id: 'Cost', title: 'Cost' },
             { id: 'Profit', title: 'Profit' },
         ]
