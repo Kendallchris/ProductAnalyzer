@@ -107,10 +107,10 @@ function promptForData(query) {
     return new Promise(resolve => rl.question(query, (answer) => {
         const trimmedAnswer = answer.trim();
         if (trimmedAnswer === '') {
-            resolve([]); // Resolve with an empty array if no input is provided
+            resolve(''); // Resolve with an empty string if no input is provided for single value prompts
         } else {
-            const companies = trimmedAnswer.split(',').map(company => company.trim().toLowerCase()); // Convert to array and normalize
-            resolve(companies);
+            // For non-array responses, return the answer directly
+            resolve(trimmedAnswer);
         }
     }));
 }
@@ -157,8 +157,12 @@ async function findFirstMatchingHeader(filePath, optionsList) {
  */
 async function getDataFromCSV() {
     const filePath = await promptForCSVFilePath();
-    const ignoreCompanies = await promptForData("Enter comma-separated companies to ignore:"); // Prompt user
-    //const ignoreCompanies = ignoreCompaniesInput.split(",").map(company => company.trim().toLowerCase()); // Convert to array and normalize
+    const ignoreCompanies = await promptForData("Enter comma-separated companies to ignore: "); // Prompt user
+    let rankFilter = await promptForData("Enter the maximum sales rank to be considered for profitability: ");
+    if (rankFilter.trim() === '') { // Handle empty input
+        rankFilter = Infinity;
+    }
+    const ignoreNoRank = await promptForData("Should items without a sales rank be ignored? (yes/no): ");
     const UPCOptions = ['UPC', 'Upc'];
     const itemNoOptions = ['Item No.', 'Item Number', 'SKU'];
     const priceOptions = ['FIRST_PricePerPiece', 'Price', 'Price Per Piece'];
@@ -192,12 +196,13 @@ async function getDataFromCSV() {
                     ProductData.push(product); // Add the product object to the ProductData array
                 } else {
                     // Optionally handle ignored companies, such as logging
-                    console.log(`Ignoring product from company: ${row.company}`);
+                    console.log(`Ignoring product from company: ${row.Company}`);
                 }
             })
             .on('end', () => {
                 console.log('CSV file successfully processed:', ProductData);
-                resolve(ProductData); // Resolve the promise with the ProductData array
+                resolve({ ProductData, rankFilter: parseInt(rankFilter, 10), ignoreNoRank }); // Resolve the promise and convert rankFilter to an integer and include it in the resolve
+                // resolve(ProductData); // Resolve the promise with the ProductData array
             })
             .on('error', reject);
     });
@@ -213,7 +218,7 @@ function calculateProfits() {
         if (product.ASIN === '0') {
             console.log(`Skipping profit calculation for placeholder ASIN: ${product.ASIN}`);
             // Update the product object with default profit calculation values
-            product.SalesRank = -1;
+            product.SalesRank = 0;
             product.ListPrice = 0;
             product.Fees = 0;
             product.Cost = parseFloat(product.Cost) || 0;
@@ -288,7 +293,7 @@ function filterAndWriteToCSV() {
  * Retrieves an initial access token, assumes an AWS role, and then makes a series of API calls to Amazon's Selling Partner API for product information.
  * @returns {Promise<void>} A promise that resolves once all API calls have been made.
  */
-async function getTokenAndMakeApiCall() {
+async function getTokenAndMakeApiCall(rankFilter, ignoreNoRank) {
     // Step 1: Obtain the Access Token
     try {
         // Obtain the Access Token
@@ -335,7 +340,7 @@ async function getTokenAndMakeApiCall() {
             }
         });
 
-        await searchCatalogItemsByUPC();
+        await searchCatalogItemsByUPC(rankFilter, ignoreNoRank);
         await getItemOffersForASIN();
         await getFeesEstimateForASINList();
 
@@ -351,7 +356,7 @@ async function getTokenAndMakeApiCall() {
  * Searches for catalog items by their UPC, handling cases where no UPC is found by setting default values. Results are stored in global arrays.
  * @returns {Promise<void>} A promise that resolves once all UPCs have been searched.
  */
-async function searchCatalogItemsByUPC() {
+async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
     for (let product of ProductData) { // Iterate over the global `ProductData` array
         const UPC = product.UPC;
         const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
@@ -361,10 +366,8 @@ async function searchCatalogItemsByUPC() {
         });
 
         if (UPC === '0') { // Check for default UPC value
-            product.ASIN = '0';
-            product.Rank = 0;
-            console.log(`Dummy UPC value - adding 0 for ASIN and Rank.`);
-            continue;
+            console.log(`Skipping product with dummy UPC.`);
+            continue; // Skip dummy UPC values
         }
 
         let retryCount = 0;
@@ -381,16 +384,25 @@ async function searchCatalogItemsByUPC() {
 
                 if (response.data && response.data.items && response.data.items.length > 0) {
                     const item = response.data.items[0]; // Assuming we're interested in the first item
-                    product.ASIN = item.asin ? item.asin : '0'; // Update the product with ASIN
-                    console.log(`Added ASIN: ${product.ASIN} for UPC: ${product.UPC}`);
                     const salesRank = item.salesRanks && item.salesRanks.length > 0 && item.salesRanks[0].displayGroupRanks.length > 0
                         ? item.salesRanks[0].displayGroupRanks[0].rank : 0;
-                    product.Rank = salesRank; // Update the product with Rank
-                    console.log(`Rank: ${salesRank}`);
+
+                    if (salesRank === 0 && ignoreNoRank === 'yes') {
+                        product.ASIN = '0';
+                        console.log(`Ignoring item with UPC: ${UPC} due to missing sales rank.`);
+                        break; // Skip further processing for this item
+                    }
+                    if (salesRank > rankFilter) {
+                        product.ASIN = '0'; // Set ASIN to '0' if rank is too high
+                        console.log(`Too high rank for UPC: ${UPC}, setting ASIN to 0.`);
+                    } else {
+                        product.ASIN = item.asin ? item.asin : '0'; // Update the product with ASIN
+                        product.Rank = salesRank; // Update the product with Rank
+                        console.log(`Added ASIN: ${product.ASIN} for UPC: ${product.UPC} with rank: ${salesRank}`);
+                    }
                 } else {
                     product.ASIN = '0';
-                    product.Rank = 0;
-                    console.log(`ASIN not found for UPC: ${product.UPC}. Setting ASIN and Rank to 0.`);
+                    console.log(`ASIN not found for UPC: ${product.UPC}. Setting ASIN to 0.`);
                 }
                 break; // Break from retry loop on success
             } catch (error) {
@@ -399,16 +411,15 @@ async function searchCatalogItemsByUPC() {
                     await new Promise(resolve => setTimeout(resolve, retryDelay));
                     retryCount++;
                 } else {
-                    console.error(`Error searching UPC ${UPC}. Setting ASIN and Rank to 0:`, error);
+                    console.error(`Error searching UPC ${UPC}. Setting ASIN to 0:`, error);
                     product.ASIN = '0';
-                    product.Rank = 0;
                     break;
                 }
             }
         }
         await new Promise(resolve => setTimeout(resolve, 500)); // Delay before making the next API call
     }
-    console.log('Updated ProductData with ASIN and Rank:', ProductData);
+    console.log('Updated ProductData:', ProductData);
 }
 
 /**
@@ -562,8 +573,8 @@ async function startProcess() {
     try {
         // Now set up the token refresh every ~hour after initial token retrieval
         setInterval(getTokenRefresh, 3500000);
-        await getDataFromCSV();
-        await getTokenAndMakeApiCall(); // This should get the initial token
+        const { rankFilter, ignoreNoRank } = await getDataFromCSV();
+        await getTokenAndMakeApiCall(rankFilter, ignoreNoRank); // This should get the initial token
         calculateProfits();
         filterAndWriteToCSV();
     } catch (error) {
