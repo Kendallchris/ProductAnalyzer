@@ -438,7 +438,7 @@ async function getItemOffersForASIN() {
         if (ASIN === undefined) {
             console.log(`Undefined ASIN found. Skipping OffersAPI call.`);
             product.ASIN = '0';
-            product.OfferPrice = 0; // Update directly in ProductData
+            product.OfferPrice = 0; // Update directly in ProductData.
             continue;
         }
         // 
