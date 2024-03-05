@@ -430,7 +430,7 @@ async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
 async function getItemOffersForASIN() {
     for (let product of ProductData) {
         const ASIN = product.ASIN;
-        if (ASIN === '0') {
+        if (!ASIN || ASIN === '0') {
             console.log(`Skipping API call for placeholder ASIN: ${ASIN}`);
             product.OfferPrice = 0; // Update directly in ProductData
             continue; // Skip the rest of the loop for this iteration
@@ -502,7 +502,7 @@ async function getItemOffersForASIN() {
  */
 async function getFeesEstimateForASINList() {
     for (let product of ProductData) {
-        if (product.ASIN === '0') {
+        if (!product.ASIN || product.ASIN === '0') {
             console.log(`Skipping fee estimate for placeholder ASIN: ${product.ASIN}`);
             product.FeesEstimate = 0; // Set directly in ProductData
             continue; // Move to the next iteration without making API calls
