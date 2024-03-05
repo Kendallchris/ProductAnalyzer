@@ -358,6 +358,8 @@ async function getTokenAndMakeApiCall(rankFilter, ignoreNoRank) {
  */
 async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
     for (let product of ProductData) { // Iterate over the global `ProductData` array
+    //for (let i = 0; i < ProductData.length; i += 20) {
+        //let batch = ProductData.slice(i, i + 20).map(product => product.UPC).filter(upc => upc !== '0');
         const UPC = product.UPC;
         const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
         const client = new CatalogItemsApiClientV20220401({
@@ -379,6 +381,7 @@ async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
                     marketplaceIds: ['ATVPDKIKX0DER'],
                     identifiersType: "UPC",
                     identifiers: [UPC],
+                    //identifiers: batch,
                     includedData: ['salesRanks'],
                 });
 
@@ -430,8 +433,18 @@ async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
 async function getItemOffersForASIN() {
     for (let product of ProductData) {
         const ASIN = product.ASIN;
-        if (ASIN === '0') {
-            console.log(`Skipping API call for placeholder ASIN: ${ASIN}`);
+
+        // redundant but debugging
+        if (ASIN === undefined) {
+            console.log(`Undefined ASIN found. Skipping OffersAPI call.`);
+            product.ASIN = '0';
+            product.OfferPrice = 0; // Update directly in ProductData
+            continue;
+        }
+        // 
+
+        if (!ASIN || ASIN === '0') {
+            console.log(`Skipping API call for placeholder ASIN`);
             product.OfferPrice = 0; // Update directly in ProductData
             continue; // Skip the rest of the loop for this iteration
         }
@@ -502,7 +515,7 @@ async function getItemOffersForASIN() {
  */
 async function getFeesEstimateForASINList() {
     for (let product of ProductData) {
-        if (product.ASIN === '0') {
+        if (!product.ASIN || product.ASIN === '0') {
             console.log(`Skipping fee estimate for placeholder ASIN: ${product.ASIN}`);
             product.FeesEstimate = 0; // Set directly in ProductData
             continue; // Move to the next iteration without making API calls
