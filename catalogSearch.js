@@ -375,8 +375,8 @@ async function getTokenAndMakeApiCall(rankFilter, ignoreNoRank) {
  */
 
 async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
-    for (let i = 0; i < ProductData.length; i += 10) {
-        let batchUPCs = ProductData.slice(i, i + 10).map(product => product.UPC).filter(upc => upc !== '0');
+    for (let i = 0; i < ProductData.length; i += 20) {
+        let batchUPCs = ProductData.slice(i, i + 20).map(product => product.UPC).filter(upc => upc !== '0');
         console.log(`Batch UPCs: ${batchUPCs}`);
 
         if (batchUPCs.length === 0) continue;
@@ -438,7 +438,7 @@ async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
                     });
                 }
 
-                ProductData.slice(i, i + 10).forEach(product => {
+                ProductData.slice(i, i + 20).forEach(product => {
                     if (!foundIdentifiers.has(product.UPC) && !foundIdentifiers.has(product.EAN)) {
                         console.log(`Identifier ${product.UPC} not found in API response, setting ASIN to '0'`);
                         product.ASIN = '0';
