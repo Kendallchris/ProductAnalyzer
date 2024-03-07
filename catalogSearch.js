@@ -164,8 +164,8 @@ async function getDataFromCSV() {
     }
     const ignoreNoRank = await promptForData("Should items without a sales rank be ignored? (yes/no): ");
     const UPCOptions = ['UPC', 'Upc'];
-    const itemNoOptions = ['Item No.', 'Item Number', 'SKU'];
-    const priceOptions = ['FIRST_PricePerPiece', 'Price', 'Price Per Piece'];
+    const itemNoOptions = ['Item No.', 'Item Number', 'SKU', 'Number'];
+    const priceOptions = ['FIRST_PricePerPiece', 'Price', 'Price Per Piece', 'sale_price'];
     const companyOptions = ['Company', 'COMPANY']; // Add company options
 
     const firstUPCHeaderIndex = await findFirstMatchingHeader(filePath, UPCOptions);
@@ -185,24 +185,28 @@ async function getDataFromCSV() {
                 }
             }))
             .on('data', (row) => {
-                if (!ignoreCompanies.includes(row['Company'].trim().toLowerCase())) { // Check if company is not in the ignore list
-                    // Process and add product to ProductData if company is not ignored
+                // Check if 'Company' column exists and is not empty, otherwise set a default value
+                const company = row['Company'] ? row['Company'].trim() : 'Unknown';
+                
+                // Convert company name to lowercase for comparison
+                const companyLowerCase = company.toLowerCase();
+            
+                if (!ignoreCompanies.split(',').map(c => c.trim().toLowerCase()).includes(companyLowerCase)) { // Check if company is not in the ignore list
                     const product = {
-                        UPC: row['UPC'] && row['UPC'].trim() !== '' ? row['UPC'].trim() : '0', // Use default value '0' if UPC is empty
-                        Cost: row['Price'] && row['Price'].trim() !== '' ? row['Price'].trim() : '0', // Use default value '0' if Price is empty
-                        ItemNo: row['ItemNo'] && row['ItemNo'].trim() !== '' ? row['ItemNo'].trim() : '0', // Use default value '0' if ItemNo is empty
-                        Company: row['Company'] && row['Company'].trim() !== '' ? row['Company'].trim() : 'Unknown' // Default value 'Unknown' if Company is empty
+                        UPC: row['UPC'] && row['UPC'].trim() !== '' ? row['UPC'].trim() : '0',
+                        Cost: row['Price'] && row['Price'].trim() !== '' ? row['Price'].trim() : '0',
+                        ItemNo: row['ItemNo'] && row['ItemNo'].trim() !== '' ? row['ItemNo'].trim() : '0',
+                        Company: company // Use the checked and trimmed company name
                     };
                     ProductData.push(product); // Add the product object to the ProductData array
                 } else {
-                    // Optionally handle ignored companies, such as logging
-                    console.log(`Ignoring product from company: ${row.Company}`);
+                    console.log(`Ignoring product from company: ${company}`);
                 }
             })
+            
             .on('end', () => {
                 console.log('CSV file successfully processed:', ProductData);
                 resolve({ ProductData, rankFilter: parseInt(rankFilter, 10), ignoreNoRank }); // Resolve the promise and convert rankFilter to an integer and include it in the resolve
-                // resolve(ProductData); // Resolve the promise with the ProductData array
             })
             .on('error', reject);
     });
@@ -350,80 +354,183 @@ async function getTokenAndMakeApiCall(rankFilter, ignoreNoRank) {
     }
 }
 
-// CAN PASS AN ARRAY OF UPCS TO THE API CALL TO SPEED THINGS UP!!!! But need to figure out how to handle unfound UPCs in that case.
 /**
  * https://selling-partner-api-sdk.scaleleap.org/classes/catalogitemsapiclientv20220401#searchCatalogItems
- * Searches for catalog items by their UPC, handling cases where no UPC is found by setting default values. Results are stored in global arrays.
- * @returns {Promise<void>} A promise that resolves once all UPCs have been searched.
+ * Searches the Amazon catalog for items using their UPCs, with support for handling missing UPCs and applying filters based on sales rank.
+ * 
+ * This function iterates over a global array of products (`ProductData`), sending batched requests to Amazon's Selling Partner API
+ * to retrieve catalog items by their UPCs. If a product's UPC is not found or if the product's sales rank does not meet specified criteria,
+ * default values are assigned to the product's ASIN and Rank properties. The function supports filtering based on a specified sales rank threshold
+ * and can optionally ignore products without a sales rank.
+ * 
+ * The Selling Partner API's searchCatalogItems endpoint is used to retrieve catalog item information, including sales ranks and identifiers
+ * (both UPC and EAN). For each item in the response, if it matches a product in the `ProductData` array by UPC (or EAN if UPC is not available),
+ * the product's ASIN and sales rank are updated accordingly. Products that do not match the filter criteria have their ASIN set to '0'.
+ * 
+ * @param {number} rankFilter - The maximum sales rank to include. Products with a sales rank above this value will have their ASIN set to '0'.
+ * @param {string} ignoreNoRank - If set to 'yes', products without a sales rank will have their ASIN set to '0'.
+ * @returns {Promise<void>} - A promise that resolves once all products in `ProductData` have been processed. Products that do not meet
+ *                             the criteria specified by `rankFilter` and `ignoreNoRank`, or are not found in the API response, will have their
+ *                             ASINs set to '0'. The global `ProductData` array is updated in place.
  */
-async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
-    for (let product of ProductData) { // Iterate over the global `ProductData` array
-    //for (let i = 0; i < ProductData.length; i += 20) {
-        //let batch = ProductData.slice(i, i + 20).map(product => product.UPC).filter(upc => upc !== '0');
-        const UPC = product.UPC;
-        const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
-        const client = new CatalogItemsApiClientV20220401({
-            accessToken: accessToken,
-            region: 'us-east-1',
-        });
 
-        if (UPC === '0') { // Check for default UPC value
-            console.log(`Skipping product with dummy UPC.`);
-            continue; // Skip dummy UPC values
-        }
+async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
+    for (let i = 0; i < ProductData.length; i += 10) {
+        let batchUPCs = ProductData.slice(i, i + 10).map(product => product.UPC).filter(upc => upc !== '0');
+        console.log(`Batch UPCs: ${batchUPCs}`);
+
+        if (batchUPCs.length === 0) continue;
+
+        const accessToken = await getCurrentAccessToken();
+        const client = new CatalogItemsApiClientV20220401({ accessToken: accessToken, region: 'us-east-1', });
 
         let retryCount = 0;
-        const maxRetries = 3; // Maximum number of retries
-        const retryDelay = 3000; // Delay between retries in milliseconds
+        const maxRetries = 3;
+        const retryDelay = 3000;
         while (retryCount < maxRetries) {
             try {
                 const response = await client.searchCatalogItems({
                     marketplaceIds: ['ATVPDKIKX0DER'],
                     identifiersType: "UPC",
-                    identifiers: [UPC],
-                    //identifiers: batch,
-                    includedData: ['salesRanks'],
+                    identifiers: batchUPCs,
+                    includedData: ['salesRanks', 'identifiers'],
                 });
 
-                if (response.data && response.data.items && response.data.items.length > 0) {
-                    const item = response.data.items[0]; // Assuming we're interested in the first item
-                    const salesRank = item.salesRanks && item.salesRanks.length > 0 && item.salesRanks[0].displayGroupRanks.length > 0
-                        ? item.salesRanks[0].displayGroupRanks[0].rank : 0;
+                let foundIdentifiers = new Set();
 
-                    if (salesRank === 0 && ignoreNoRank === 'yes') {
-                        product.ASIN = '0';
-                        console.log(`Ignoring item with UPC: ${UPC} due to missing sales rank.`);
-                        break; // Skip further processing for this item
-                    }
-                    if (salesRank > rankFilter) {
-                        product.ASIN = '0'; // Set ASIN to '0' if rank is too high
-                        console.log(`Too high rank for UPC: ${UPC}, setting ASIN to 0.`);
-                    } else {
-                        product.ASIN = item.asin ? item.asin : '0'; // Update the product with ASIN
-                        product.Rank = salesRank; // Update the product with Rank
-                        console.log(`Added ASIN: ${product.ASIN} for UPC: ${product.UPC} with rank: ${salesRank}`);
-                    }
-                } else {
-                    product.ASIN = '0';
-                    console.log(`ASIN not found for UPC: ${product.UPC}. Setting ASIN to 0.`);
+                if (response.data && response.data.items && response.data.items.length > 0) {
+                    response.data.items.forEach(item => {
+                        let preferredIdentifier = null;
+                        let foundUPC = false;
+                        item.identifiers.forEach(identifiersByMarketplace => {
+                            identifiersByMarketplace.identifiers.forEach(identifier => {
+                                if (identifier.identifierType === 'UPC' || (!preferredIdentifier && identifier.identifierType === 'EAN')) {
+                                    preferredIdentifier = identifier.identifier;
+                                    if (identifier.identifierType === 'UPC') {
+                                        foundUPC = true;
+                                    }
+                                }
+                            });
+                        });
+
+                        if (!preferredIdentifier) return;
+
+                        const productIndex = ProductData.findIndex(product => product.UPC === preferredIdentifier || (!foundUPC && product.EAN === preferredIdentifier));
+                        if (productIndex === -1) return;
+                        
+                        const product = ProductData[productIndex];
+                        const salesRank = item.salesRanks?.[0]?.displayGroupRanks?.[0]?.rank || 0;
+
+                        // Implementing rankFilter and ignoreNoRank logic
+                        if (salesRank === 0 && ignoreNoRank === 'yes') {
+                            console.log(`Ignoring item with identifier ${preferredIdentifier} due to missing sales rank.`);
+                            product.ASIN = '0';
+                        } else if (salesRank > rankFilter) {
+                            console.log(`Too high rank for identifier ${preferredIdentifier}, setting ASIN to 0.`);
+                            product.ASIN = '0';
+                        } else {
+                            product.ASIN = item.asin || '0';
+                            product.Rank = salesRank;
+                            console.log(`Updated ProductData for ${preferredIdentifier} with ASIN: ${product.ASIN} and Rank: ${product.Rank}`);
+                        }
+
+                        foundIdentifiers.add(preferredIdentifier);
+                    });
                 }
-                break; // Break from retry loop on success
+
+                ProductData.slice(i, i + 10).forEach(product => {
+                    if (!foundIdentifiers.has(product.UPC) && !foundIdentifiers.has(product.EAN)) {
+                        console.log(`Identifier ${product.UPC} not found in API response, setting ASIN to '0'`);
+                        product.ASIN = '0';
+                    }
+                });
+
+                break;
             } catch (error) {
+                console.error(`Error processing batch starting at index ${i}:`, error);
+                retryCount++;
                 if (error.name === 'SellingPartnerTooManyRequestsError') {
-                    console.log(`Rate limited on UPC ${UPC}, retrying after ${retryDelay}ms...`);
                     await new Promise(resolve => setTimeout(resolve, retryDelay));
-                    retryCount++;
                 } else {
-                    console.error(`Error searching UPC ${UPC}. Setting ASIN to 0:`, error);
-                    product.ASIN = '0';
                     break;
                 }
             }
         }
-        await new Promise(resolve => setTimeout(resolve, 500)); // Delay before making the next API call
+
+        await new Promise(resolve => setTimeout(resolve, 500));
     }
+
     console.log('Updated ProductData:', ProductData);
 }
+
+// async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
+//     for (let product of ProductData) { // Iterate over the global `ProductData` array
+//     //for (let i = 0; i < ProductData.length; i += 20) {
+//         //let batch = ProductData.slice(i, i + 20).map(product => product.UPC).filter(upc => upc !== '0');
+//         const UPC = product.UPC;
+//         const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
+//         const client = new CatalogItemsApiClientV20220401({
+//             accessToken: accessToken,
+//             region: 'us-east-1',
+//         });
+
+//         if (UPC === '0') { // Check for default UPC value
+//             console.log(`Skipping product with dummy UPC.`);
+//             continue; // Skip dummy UPC values
+//         }
+
+//         let retryCount = 0;
+//         const maxRetries = 3; // Maximum number of retries
+//         const retryDelay = 3000; // Delay between retries in milliseconds
+//         while (retryCount < maxRetries) {
+//             try {
+//                 const response = await client.searchCatalogItems({
+//                     marketplaceIds: ['ATVPDKIKX0DER'],
+//                     identifiersType: "UPC",
+//                     identifiers: [UPC],
+//                     //identifiers: batch,
+//                     includedData: ['salesRanks'],
+//                 });
+
+//                 if (response.data && response.data.items && response.data.items.length > 0) {
+//                     const item = response.data.items[0]; // Assuming we're interested in the first item
+//                     const salesRank = item.salesRanks && item.salesRanks.length > 0 && item.salesRanks[0].displayGroupRanks.length > 0
+//                         ? item.salesRanks[0].displayGroupRanks[0].rank : 0;
+
+//                     if (salesRank === 0 && ignoreNoRank === 'yes') {
+//                         product.ASIN = '0';
+//                         console.log(`Ignoring item with UPC: ${UPC} due to missing sales rank.`);
+//                         break; // Skip further processing for this item
+//                     }
+//                     if (salesRank > rankFilter) {
+//                         product.ASIN = '0'; // Set ASIN to '0' if rank is too high
+//                         console.log(`Too high rank for UPC: ${UPC}, setting ASIN to 0.`);
+//                     } else {
+//                         product.ASIN = item.asin ? item.asin : '0'; // Update the product with ASIN
+//                         product.Rank = salesRank; // Update the product with Rank
+//                         console.log(`Added ASIN: ${product.ASIN} for UPC: ${product.UPC} with rank: ${salesRank}`);
+//                     }
+//                 } else {
+//                     product.ASIN = '0';
+//                     console.log(`ASIN not found for UPC: ${product.UPC}. Setting ASIN to 0.`);
+//                 }
+//                 break; // Break from retry loop on success
+//             } catch (error) {
+//                 if (error.name === 'SellingPartnerTooManyRequestsError') {
+//                     console.log(`Rate limited on UPC ${UPC}, retrying after ${retryDelay}ms...`);
+//                     await new Promise(resolve => setTimeout(resolve, retryDelay));
+//                     retryCount++;
+//                 } else {
+//                     console.error(`Error searching UPC ${UPC}. Setting ASIN to 0:`, error);
+//                     product.ASIN = '0';
+//                     break;
+//                 }
+//             }
+//         }
+//         await new Promise(resolve => setTimeout(resolve, 500)); // Delay before making the next API call
+//     }
+//     console.log('Updated ProductData:', ProductData);
+// }
 
 /**
  * https://selling-partner-api-sdk.scaleleap.org/classes/productpricingapiclient#getCompetitivePricing
@@ -571,7 +678,7 @@ async function getFeesEstimateForASINList() {
             }
         }
         // Delay for 3 seconds before making the next API call
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
     // Log the updated ProductData for debugging
