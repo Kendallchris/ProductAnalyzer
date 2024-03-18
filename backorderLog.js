@@ -158,21 +158,17 @@ async function findFirstMatchingHeader(filePath, optionsList) {
  */
 async function getDataFromCSV() {
     const filePath = await promptForCSVFilePath();
-    const ignoreCompanies = await promptForData("Enter comma-separated companies to ignore: "); // Prompt user
-    let rankFilter = await promptForData("Enter the maximum sales rank to be considered for profitability: ");
-    if (rankFilter.trim() === '') { // Handle empty input
-        rankFilter = Infinity;
-    }
-    const ignoreNoRank = await promptForData("Should items without a sales rank be ignored? (yes/no): ");
     const UPCOptions = ['UPC', 'Upc'];
     const itemNoOptions = ['Item No.', 'Item Number', 'SKU', 'Number'];
     const priceOptions = ['FIRST_PricePerPiece', 'Price', 'Price Per Piece', 'sale_price'];
-    const companyOptions = ['Company', 'COMPANY']; // Add company options
+    const nameOptions = ['Item Name'];
+    const statusOptions = ['Status'];
 
     const firstUPCHeaderIndex = await findFirstMatchingHeader(filePath, UPCOptions);
     const firstItemNoHeaderIndex = await findFirstMatchingHeader(filePath, itemNoOptions);
     const firstPriceHeaderIndex = await findFirstMatchingHeader(filePath, priceOptions);
-    const firstCompanyHeaderIndex = await findFirstMatchingHeader(filePath, companyOptions); // Find the company header index
+    const firstItemNameIndex = await findFirstMatchingHeader(filePath, nameOptions);
+    const firstStatusIndex = await findFirstMatchingHeader(filePath, statusOptions);
 
     return new Promise((resolve, reject) => {
         fs.createReadStream(filePath)
@@ -181,33 +177,28 @@ async function getDataFromCSV() {
                     if (index === firstUPCHeaderIndex) return 'UPC';
                     if (index === firstItemNoHeaderIndex) return 'ItemNo';
                     if (index === firstPriceHeaderIndex) return 'Price';
-                    if (index === firstCompanyHeaderIndex) return 'Company'; // Map the company column
+                    if (index === firstItemNameIndex) return 'Item Name'; // Map the company column
+                    if (index === firstStatusIndex) return 'Order Status'; // ************ Implement order status stuff
                     return null; // Ignore other columns
                 }
             }))
             .on('data', (row) => {
-                // Check if 'Company' column exists and is not empty, otherwise set a default value
-                const company = row['Company'] ? row['Company'].trim() : 'Unknown';
-                
-                // Convert company name to lowercase for comparison
-                const companyLowerCase = company.toLowerCase();
-            
-                if (!ignoreCompanies.split(',').map(c => c.trim().toLowerCase()).includes(companyLowerCase)) { // Check if company is not in the ignore list
-                    const product = {
-                        UPC: row['UPC'] && row['UPC'].trim() !== '' ? row['UPC'].trim() : '0',
-                        Cost: row['Price'] && row['Price'].trim() !== '' ? row['Price'].trim() : '0',
-                        ItemNo: row['ItemNo'] && row['ItemNo'].trim() !== '' ? row['ItemNo'].trim() : '0',
-                        Company: company // Use the checked and trimmed company name
-                    };
-                    ProductData.push(product); // Add the product object to the ProductData array
-                } else {
-                    console.log(`Ignoring product from company: ${company}`);
-                }
+                // Check if 'Item Name' column exists and is not empty, otherwise set a default value
+                const itemName = row['Item Name'] ? row['Item Name'].trim() : 'Unknown';
+
+                const product = {
+                    UPC: row['UPC'] && row['UPC'].trim() !== '' ? row['UPC'].trim() : '0',
+                    Cost: row['Price'] && row['Price'].trim() !== '' ? row['Price'].trim() : '0',
+                    ItemNo: row['ItemNo'] && row['ItemNo'].trim() !== '' ? row['ItemNo'].trim() : '0',
+                    ItemName: itemName
+                };
+                ProductData.push(product); // Add the product object to the ProductData array
+
             })
-            
+
             .on('end', () => {
                 console.log('CSV file successfully processed:', ProductData);
-                resolve({ ProductData, rankFilter: parseInt(rankFilter, 10), ignoreNoRank }); // Resolve the promise and convert rankFilter to an integer and include it in the resolve
+                resolve({ ProductData });
             })
             .on('error', reject);
     });
@@ -256,9 +247,9 @@ function filterAndWriteToCSV() {
     // const value = await promptForData("Enter the minimum profit value to filter by:"); // Get value from user
     // Convert value to a number
     // const numericValue = Number(value);
-    numericValue = 5;
+    numericValue = 1;
     // Filter for profits greater than or equal to the specified value
-    let filteredProfits = ProductData.filter(product => product.Profit >= numericValue);
+    let filteredProfits = ProductData.filter(product => product.Profit <= numericValue);
 
     // Filter out entries with default values in key fields
     filteredProfits = filteredProfits.filter(product => {
@@ -273,7 +264,7 @@ function filterAndWriteToCSV() {
             { id: 'ItemNo', title: 'Item No.' },
             { id: 'UPC', title: 'UPC' },
             { id: 'ASIN', title: 'ASIN' },
-            { id: 'Company', title: 'Company' },
+            { id: 'ItemName', title: 'Item Name' },
             { id: 'Rank', title: 'SalesRank' },
             { id: 'OfferPrice', title: 'ListPrice' },
             { id: 'FeesEstimate', title: 'Fees' },
@@ -418,7 +409,7 @@ async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
 
                         const productIndex = ProductData.findIndex(product => product.UPC === preferredIdentifier || (!foundUPC && product.EAN === preferredIdentifier));
                         if (productIndex === -1) return;
-                        
+
                         const product = ProductData[productIndex];
                         const salesRank = item.salesRanks?.[0]?.displayGroupRanks?.[0]?.rank || 0;
 
@@ -463,75 +454,6 @@ async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
 
     console.log('Updated ProductData:', ProductData);
 }
-
-// async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
-//     for (let product of ProductData) { // Iterate over the global `ProductData` array
-//     //for (let i = 0; i < ProductData.length; i += 20) {
-//         //let batch = ProductData.slice(i, i + 20).map(product => product.UPC).filter(upc => upc !== '0');
-//         const UPC = product.UPC;
-//         const accessToken = await getCurrentAccessToken(); // Ensure you have the latest token
-//         const client = new CatalogItemsApiClientV20220401({
-//             accessToken: accessToken,
-//             region: 'us-east-1',
-//         });
-
-//         if (UPC === '0') { // Check for default UPC value
-//             console.log(`Skipping product with dummy UPC.`);
-//             continue; // Skip dummy UPC values
-//         }
-
-//         let retryCount = 0;
-//         const maxRetries = 3; // Maximum number of retries
-//         const retryDelay = 3000; // Delay between retries in milliseconds
-//         while (retryCount < maxRetries) {
-//             try {
-//                 const response = await client.searchCatalogItems({
-//                     marketplaceIds: ['ATVPDKIKX0DER'],
-//                     identifiersType: "UPC",
-//                     identifiers: [UPC],
-//                     //identifiers: batch,
-//                     includedData: ['salesRanks'],
-//                 });
-
-//                 if (response.data && response.data.items && response.data.items.length > 0) {
-//                     const item = response.data.items[0]; // Assuming we're interested in the first item
-//                     const salesRank = item.salesRanks && item.salesRanks.length > 0 && item.salesRanks[0].displayGroupRanks.length > 0
-//                         ? item.salesRanks[0].displayGroupRanks[0].rank : 0;
-
-//                     if (salesRank === 0 && ignoreNoRank === 'yes') {
-//                         product.ASIN = '0';
-//                         console.log(`Ignoring item with UPC: ${UPC} due to missing sales rank.`);
-//                         break; // Skip further processing for this item
-//                     }
-//                     if (salesRank > rankFilter) {
-//                         product.ASIN = '0'; // Set ASIN to '0' if rank is too high
-//                         console.log(`Too high rank for UPC: ${UPC}, setting ASIN to 0.`);
-//                     } else {
-//                         product.ASIN = item.asin ? item.asin : '0'; // Update the product with ASIN
-//                         product.Rank = salesRank; // Update the product with Rank
-//                         console.log(`Added ASIN: ${product.ASIN} for UPC: ${product.UPC} with rank: ${salesRank}`);
-//                     }
-//                 } else {
-//                     product.ASIN = '0';
-//                     console.log(`ASIN not found for UPC: ${product.UPC}. Setting ASIN to 0.`);
-//                 }
-//                 break; // Break from retry loop on success
-//             } catch (error) {
-//                 if (error.name === 'SellingPartnerTooManyRequestsError') {
-//                     console.log(`Rate limited on UPC ${UPC}, retrying after ${retryDelay}ms...`);
-//                     await new Promise(resolve => setTimeout(resolve, retryDelay));
-//                     retryCount++;
-//                 } else {
-//                     console.error(`Error searching UPC ${UPC}. Setting ASIN to 0:`, error);
-//                     product.ASIN = '0';
-//                     break;
-//                 }
-//             }
-//         }
-//         await new Promise(resolve => setTimeout(resolve, 500)); // Delay before making the next API call
-//     }
-//     console.log('Updated ProductData:', ProductData);
-// }
 
 /**
  * https://selling-partner-api-sdk.scaleleap.org/classes/productpricingapiclient#getCompetitivePricing
