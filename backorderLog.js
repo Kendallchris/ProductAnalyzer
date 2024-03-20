@@ -14,7 +14,6 @@ const fs = require('fs');
 const createCsvWriter = require('csv-writer').createObjectCsvWriter;
 const { STSClient, AssumeRoleCommand } = require('@aws-sdk/client-sts');
 const { SellersApiClient, CatalogItemsApiClientV20220401, ProductPricingApiClient, ProductFeesApiClient } = require('@scaleleap/selling-partner-api-sdk');
-// list of companies that do not allow Amazon sales: Youtooz, Gamago
 
 // Global Variables
 let currentAccessToken = '';
@@ -36,7 +35,6 @@ const rl = readline.createInterface({
  * @returns {Promise<String>} A promise that resolves to the current access token.
  */
 async function getCurrentAccessToken() {
-    // Logic here to ensure the returned token is the latest. This could be as simple as returning the currentAccessToken variable if it's always kept up-to-date.
     return currentAccessToken;
 }
 
@@ -163,6 +161,7 @@ async function getDataFromCSV() {
     const priceOptions = ['FIRST_PricePerPiece', 'Price', 'Price Per Piece', 'sale_price'];
     const nameOptions = ['Item Name'];
     const statusOptions = ['Status'];
+    const ignoreStatus = ['In Warehouse', 'Shipped'];
 
     const firstUPCHeaderIndex = await findFirstMatchingHeader(filePath, UPCOptions);
     const firstItemNoHeaderIndex = await findFirstMatchingHeader(filePath, itemNoOptions);
@@ -185,14 +184,21 @@ async function getDataFromCSV() {
             .on('data', (row) => {
                 // Check if 'Item Name' column exists and is not empty, otherwise set a default value
                 const itemName = row['Item Name'] ? row['Item Name'].trim() : 'Unknown';
+                const orderStatus = row['Order Status'] ? row['Order Status'].trim() : 'Unknown';
+                const orderStatusLowerCase = orderStatus.toLowerCase();
 
-                const product = {
-                    UPC: row['UPC'] && row['UPC'].trim() !== '' ? row['UPC'].trim() : '0',
-                    Cost: row['Price'] && row['Price'].trim() !== '' ? row['Price'].trim() : '0',
-                    ItemNo: row['ItemNo'] && row['ItemNo'].trim() !== '' ? row['ItemNo'].trim() : '0',
-                    ItemName: itemName
-                };
-                ProductData.push(product); // Add the product object to the ProductData array
+                if (!ignoreStatus.map(c => c.trim().toLowerCase()).includes(orderStatusLowerCase)) {
+                    const product = {
+                        UPC: row['UPC'] && row['UPC'].trim() !== '' ? row['UPC'].trim() : '0',
+                        Cost: row['Price'] && row['Price'].trim() !== '' ? row['Price'].trim() : '0',
+                        ItemNo: row['ItemNo'] && row['ItemNo'].trim() !== '' ? row['ItemNo'].trim() : '0',
+                        ItemName: itemName,
+                        OrderStatus: orderStatus
+                    };
+                    ProductData.push(product); // Add the product object to the ProductData array
+                } else {
+                    // ignore shipped/shipping order
+                }
 
             })
 
