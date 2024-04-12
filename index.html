@@ -22,9 +22,26 @@
         <h2>Product Research</h2>
         <p>Select a CSV file to analyze for profitable products:</p>
         <button onclick="selectFile()">Choose CSV File</button>
+        <input type="text" id="ignore-companies" placeholder="Enter comma-separated companies to ignore">
+        <input type="number" id="max-sales-rank" placeholder="Enter the maximum sales rank to consider">
+        <input type="text" id="ignore-no-rank" placeholder="Ignore items without sales rank? (yes/no)">
         <button id="start-analysis" onclick="startAnalysis()">Start Analysis</button>
         <p id="selected-file">No file selected</p>
-        <!-- Add more form elements or buttons as needed for the module -->
+        <!-- Results will be displayed in this table -->
+        <div id="results-container">
+            <h3>Analysis Results</h3>
+            <table id="results-table">
+                <!-- Table headers -->
+                <tr>
+                    <th>UPC</th>
+                    <th>Item No</th>
+                    <th>Price</th>
+                    <th>Company</th>
+                    <!-- Add more headers as needed -->
+                </tr>
+                <!-- Results will be appended here -->
+            </table>
+        </div>
     </div>
     <div id="backorder-log" class="module hidden">
         <h2>Backorder Log</h2>
@@ -66,11 +83,15 @@
 
         // When the "Start Analysis" button is clicked
         function startAnalysis() {
-            const selectedFileText = document.getElementById('selected-file').textContent;
-            const filePath = selectedFileText.replace('Selected file: ', '').trim();
+            const filePath = document.getElementById('selected-file').textContent.replace('Selected file: ', '').trim();
+            const ignoreCompanies = document.getElementById('ignore-companies').value;
+            const maxRank = document.getElementById('max-sales-rank').value;
+            const ignoreNoRank = document.getElementById('ignore-no-rank').value;
+
             if (filePath && filePath !== 'No file selected') {
-                console.log('Sending file path for analysis:', filePath); // This should log
-                window.api.startAnalysis(filePath);
+                console.log('Sending file path for analysis:', filePath);
+                // Send the values to the main process
+                window.api.startAnalysis(filePath, ignoreCompanies, maxRank, ignoreNoRank);
             } else {
                 alert('Please select a CSV file first.');
             }

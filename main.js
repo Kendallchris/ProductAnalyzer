@@ -49,10 +49,11 @@ ipcMain.on('open-file-dialog-for-csv', (event) => {
 });
 
 // HERE IS WHERE I WILL IMPLEMENT MY CATALOGSEARCH FUNCTION *********************************************
-ipcMain.on('start-analysis', (event, filePath) => {
-    // Here you can handle the file analysis
-    console.log('Start analysis for:', filePath);
-    // Perform your analysis with this file path
+ipcMain.on('start-analysis', (event, args) => {
+    console.log('Start analysis for:', args);
+    // args.filePath, args.ignoreCompanies, args.maxRank, args.ignoreNoRank are now available
+    // Here you can handle the file analysis using the provided parameters
+    // Perform your analysis with these parameters
 });
 
 app.whenReady().then(createWindow);
