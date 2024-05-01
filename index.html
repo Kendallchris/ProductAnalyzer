@@ -27,21 +27,8 @@
         <input type="text" id="ignore-no-rank" placeholder="Ignore items without sales rank? (yes/no)">
         <button id="start-analysis" onclick="startAnalysis()">Start Analysis</button>
         <p id="selected-file">No file selected</p>
-        <!-- Results will be displayed in this table -->
-        <div id="results-container">
-            <h3>Analysis Results</h3>
-            <table id="results-table">
-                <!-- Table headers -->
-                <tr>
-                    <th>UPC</th>
-                    <th>Item No</th>
-                    <th>Price</th>
-                    <th>Company</th>
-                    <!-- Add more headers as needed -->
-                </tr>
-                <!-- Results will be appended here -->
-            </table>
-        </div>
+        <p id="loading-indicator" style="display: none;">Processing...</p>
+        <a id="download-link" href="#" style="display: none;">Download Result CSV</a>
     </div>
     <div id="backorder-log" class="module hidden">
         <h2>Backorder Log</h2>
@@ -51,8 +38,6 @@
         <h2>Estimate Spend</h2>
         <!-- Content specific to the Estimate Spend module -->
     </div>
-    </div>
-
     <script>
         // When the "Choose CSV File" button is clicked
         function selectFile() {
@@ -90,12 +75,28 @@
 
             if (filePath && filePath !== 'No file selected') {
                 console.log('Sending file path for analysis:', filePath);
-                // Send the values to the main process
+                document.getElementById('loading-indicator').style.display = 'block';  // Show the loading indicator
                 window.api.startAnalysis(filePath, ignoreCompanies, maxRank, ignoreNoRank);
             } else {
                 alert('Please select a CSV file first.');
             }
         }
+
+        // Listen for analysis results
+        window.api.onAnalysisResults((filePath) => {
+            document.getElementById('loading-indicator').style.display = 'none';  // Hide the loading indicator
+            const link = document.getElementById('download-link');
+            link.href = filePath;  // Set the href to the path of the generated CSV file
+            link.style.display = 'block';  // Show the download link
+            link.textContent = 'Download Research CSV';  // Set the link text
+        });
+
+        // Listen for analysis error
+        window.api.onAnalysisError((errorMessage) => {
+            document.getElementById('loading-indicator').style.display = 'none';  // Hide the loading indicator
+            console.error('Analysis error:', errorMessage);
+            alert('An error occurred during the analysis: ' + errorMessage);
+        });
 
         // Initial call to show the first module by default
         showModule('product-research');

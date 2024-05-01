@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { startProductAnalysis } = require('./catalogSearchGUI');
 const path = require('path');
 let win;
 
@@ -49,11 +50,20 @@ ipcMain.on('open-file-dialog-for-csv', (event) => {
 });
 
 // HERE IS WHERE I WILL IMPLEMENT MY CATALOGSEARCH FUNCTION *********************************************
-ipcMain.on('start-analysis', (event, args) => {
-    console.log('Start analysis for:', args);
-    // args.filePath, args.ignoreCompanies, args.maxRank, args.ignoreNoRank are now available
-    // Here you can handle the file analysis using the provided parameters
-    // Perform your analysis with these parameters
+ipcMain.on('start-analysis', async (event, args) => {
+    try {
+        const csvFilePath = await startProductAnalysis(
+            args.filePath,
+            args.ignoreCompanies,
+            args.maxRank,
+            args.ignoreNoRank
+        );
+        // Send the file path back to the renderer process
+        event.sender.send('analysis-results', csvFilePath);
+    } catch (error) {
+        console.error('Error during analysis:', error);
+        event.sender.send('analysis-error', error.message);
+    }
 });
 
 app.whenReady().then(createWindow);

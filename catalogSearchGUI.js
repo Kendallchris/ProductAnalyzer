@@ -14,6 +14,7 @@ const fs = require('fs');
 const createCsvWriter = require('csv-writer').createObjectCsvWriter;
 const { STSClient, AssumeRoleCommand } = require('@aws-sdk/client-sts');
 const { SellersApiClient, CatalogItemsApiClientV20220401, ProductPricingApiClient, ProductFeesApiClient } = require('@scaleleap/selling-partner-api-sdk');
+const path = require('path');
 // list of companies that do not allow Amazon sales: Youtooz, Gamago
 
 // Global Variables
@@ -156,10 +157,10 @@ async function getDataFromCSV(filePath, ignoreCompanies, maxRank, ignoreNoRank) 
             .on('data', (row) => {
                 // Check if 'Company' column exists and is not empty, otherwise set a default value
                 const company = row['Company'] ? row['Company'].trim() : 'Unknown';
-                
+
                 // Convert company name to lowercase for comparison
                 const companyLowerCase = company.toLowerCase();
-            
+
                 if (!ignoreCompanies.split(',').map(c => c.trim().toLowerCase()).includes(companyLowerCase)) { // Check if company is not in the ignore list
                     const product = {
                         UPC: row['UPC'] && row['UPC'].trim() !== '' ? row['UPC'].trim() : '0',
@@ -172,7 +173,7 @@ async function getDataFromCSV(filePath, ignoreCompanies, maxRank, ignoreNoRank) 
                     console.log(`Ignoring product from company: ${company}`);
                 }
             })
-            
+
             .on('end', () => {
                 console.log('CSV file successfully processed:', ProductData);
                 resolve({ ProductData, maxRank: parseInt(maxRank, 10), ignoreNoRank }); // Resolve the promise and convert maxRank to an integer and include it in the resolve
@@ -254,11 +255,10 @@ function filterAndWriteToCSV() {
     csvWriter.writeRecords(filteredProfits)
         .then(() => {
             console.log('The CSV file was written successfully');
-            process.exit(0); // Exit the process after writing the file successfully
         })
         .catch((error) => {
-            console.error('Error writing CSV file:', error);
-            process.exit(1); // Exit with an error code if writing the file fails
+            console.error('Failed to write CSV:', error);
+            throw error;
         });
 }
 
@@ -386,7 +386,7 @@ async function searchCatalogItemsByUPC(rankFilter, ignoreNoRank) {
 
                         const productIndex = ProductData.findIndex(product => product.UPC === preferredIdentifier || (!foundUPC && product.EAN === preferredIdentifier));
                         if (productIndex === -1) return;
-                        
+
                         const product = ProductData[productIndex];
                         const salesRank = item.salesRanks?.[0]?.displayGroupRanks?.[0]?.rank || 0;
 
@@ -604,8 +604,8 @@ async function startProcess() {
 }
 
 startProcess().catch(error => {
-    console.error("An error occurred during the process:", error);
-    process.exit(1); // Exit the process with a failure code
+    console.error('An error occurred during the process:', error);
+    throw error;
 });
 
 // Convert startProcess into a callable function
@@ -616,7 +616,7 @@ async function startProductAnalysis(filePath, ignoreCompanies, maxRank, ignoreNo
         // Use the passed filePath instead of calling promptForCSVFilePath
         // Parse the CSV, filter data based on the passed parameters
         // and call the Amazon API
-        
+
         // Now set up the token refresh every ~hour after initial token retrieval
         setInterval(getTokenRefresh, 3500000);
         await getDataFromCSV(filePath, ignoreCompanies, maxRank, ignoreNoRank);
@@ -630,7 +630,8 @@ async function startProductAnalysis(filePath, ignoreCompanies, maxRank, ignoreNo
         // Write results to CSV
         // ...
         // Return data or result
-        return someResult; // This should be the data you want to send back to the renderer process
+        const csvFilePath = path.join(__dirname, 'Research.csv');
+        return csvFilePath; // Return the path to the CSV file
     } catch (error) {
         console.error("Error during the process:", error);
         throw error; // Rethrow the error so that the caller can handle it
