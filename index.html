@@ -32,8 +32,65 @@
     </div>
     <div id="backorder-log" class="module hidden">
         <h2>Backorder Log</h2>
-        <!-- Content specific to the Backorder Log module -->
+        <p>Select a CSV file to analyze for backorder items:</p>
+        <button onclick="selectBackorderFile()">Choose CSV File for Backorder</button>
+        <button id="start-backorder-analysis" onclick="startBackorderAnalysis()">Start Backorder Analysis</button>
+        <p id="backorder-selected-file">No file selected</p>
+        <p id="backorder-loading-indicator" style="display: none;">Processing...</p>
+        <a id="backorder-download-link" href="#" style="display: none;">Download Backorder CSV</a>
     </div>
+    <script>
+        function selectBackorderFile() {
+            // This should trigger file selection specific to backorder files
+            window.api.selectFile(); // You might need to adjust if differentiating file types
+        }
+
+        // Listen for the file selection event
+        window.api.onFileSelected((filePath) => {
+            console.log('Received file path:', filePath);
+            document.getElementById('backorder-selected-file').textContent = `Selected file: ${filePath}`;
+        });
+
+        function startBackorderAnalysis() {
+            const filePath = document.getElementById('backorder-selected-file').textContent.replace('Selected file: ', '').trim();
+            if (filePath && filePath !== 'No file selected') {
+                console.log('Sending file path for backorder analysis:', filePath);
+                document.getElementById('backorder-loading-indicator').style.display = 'block';
+                window.api.startBackorderAnalysis(filePath);
+            } else {
+                alert('Please select a CSV file first.');
+            }
+        }
+
+        window.api.onBackorderAnalysisResults((filePath) => {
+            document.getElementById('backorder-loading-indicator').style.display = 'none';
+            const link = document.getElementById('backorder-download-link');
+            link.href = filePath;
+            link.style.display = 'block';
+            link.textContent = 'Download Backorder CSV';
+        });
+
+        window.api.onBackorderAnalysisError((errorMessage) => {
+            document.getElementById('backorder-loading-indicator').style.display = 'none';
+            console.error('Backorder analysis error:', errorMessage);
+            alert('An error occurred during the backorder analysis: ' + errorMessage);
+        });
+
+        // Update to include backorder log module
+        function showModule(moduleId) {
+            // Hide all modules
+            document.querySelectorAll('.module').forEach((module) => {
+                module.classList.add('hidden');
+            });
+
+            // Show the requested module
+            const moduleToShow = document.getElementById(moduleId);
+            if (moduleToShow) {
+                moduleToShow.classList.remove('hidden');
+                document.getElementById('module-content-title').textContent = moduleId.replace('-', ' ').replace('log', ' Log');
+            }
+        }
+    </script>
     <div id="estimate-spend" class="module hidden">
         <h2>Estimate Spend</h2>
         <!-- Content specific to the Estimate Spend module -->

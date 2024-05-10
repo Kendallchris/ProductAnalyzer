@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { startProductAnalysis } = require('./catalogSearchGUI');
+const { startBackorderAnalysis } = require('./backorderLogGUI');
 const path = require('path');
 let win;
 
@@ -63,6 +64,17 @@ ipcMain.on('start-analysis', async (event, args) => {
     } catch (error) {
         console.error('Error during analysis:', error);
         event.sender.send('analysis-error', error.message);
+    }
+});
+
+// Add the IPC listener for backorder analysis
+ipcMain.on('start-backorder-analysis', async (event, args) => {
+    try {
+        const csvFilePath = await startBackorderAnalysis(args.filePath);
+        event.sender.send('backorder-analysis-results', csvFilePath);
+    } catch (error) {
+        console.error('Error during backorder analysis:', error);
+        event.sender.send('backorder-analysis-error', error.message);
     }
 });
 

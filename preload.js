@@ -19,5 +19,16 @@ contextBridge.exposeInMainWorld('api', {
     // Function to listen for analysis results from the main process
     onAnalysisResults: (callback) => {
         ipcRenderer.on('analysis-results', (event, results) => callback(results));
+    },
+
+    // Add new functions for backorder analysis
+    startBackorderAnalysis: (filePath) => {
+        ipcRenderer.send('start-backorder-analysis', { filePath });
+    },
+    onBackorderAnalysisResults: (callback) => {
+        ipcRenderer.on('backorder-analysis-results', (event, results) => callback(results));
+    },
+    onBackorderAnalysisError: (callback) => {
+        ipcRenderer.on('backorder-analysis-error', (event, errorMessage) => callback(errorMessage));
     }
 });
